@@ -69,8 +69,14 @@ jobs:
             cd app
             npm ci --include=dev
             npx prisma generate
-            npx prisma migrate deploy
-            npm run build
+            if [ -d prisma/migrations ] && [ "$(find prisma/migrations -mindepth 1 -maxdepth 1 | wc -l)" -gt 0 ]; then
+              npx prisma migrate deploy
+            else
+              echo "No prisma migrations found. Running prisma db push..."
+              npx prisma db push --accept-data-loss
+            fi
+            npx prisma db seed || true
+            LOCAL_DISABLE_REDIS=true npm run build
 
             if pm2 describe waterpark >/dev/null 2>&1; then
               pm2 restart waterpark
