@@ -4,6 +4,11 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireAdmin, requireStaff } from "@/lib/session";
 
+function asNumber(value: unknown, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
 const createSchema = z.object({
   zoneId: z.string().min(1),
   number: z.string().min(1).max(20),
@@ -39,7 +44,7 @@ export async function GET(req: NextRequest) {
     lockers.map((locker) => ({
       ...locker,
       rate: Number(locker.rate),
-      gstRate: Number((locker as { gstRate?: number | string }).gstRate ?? 18),
+      gstRate: asNumber((locker as unknown as Record<string, unknown>).gstRate, 18),
     })),
   );
 }
@@ -72,7 +77,7 @@ export async function POST(req: NextRequest) {
     {
       ...locker,
       rate: Number(locker.rate),
-      gstRate: Number((locker as { gstRate?: number | string }).gstRate ?? 18),
+      gstRate: asNumber((locker as unknown as Record<string, unknown>).gstRate, 18),
     },
     { status: 201 },
   );

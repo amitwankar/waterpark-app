@@ -7,6 +7,11 @@ import "server-only";
 
 import { db } from "@/lib/db";
 
+function asNumber(value: unknown, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
 export interface ReceiptLineItem {
   name: string;
   quantity: number;
@@ -93,8 +98,9 @@ export async function buildBookingReceipt(bookingId: string): Promise<Receipt | 
 
   for (const assignment of lockerAssignments) {
     const amount = Number(assignment.amount);
-    const lockerGstRate = Number(
-      (assignment.locker as { gstRate?: number | string }).gstRate ?? parkConfig?.lockerGstRate ?? 0,
+    const lockerGstRate = asNumber(
+      (assignment.locker as unknown as Record<string, unknown>).gstRate,
+      Number(parkConfig?.lockerGstRate ?? 0),
     );
     const baseAmount = lockerGstRate > 0 ? amount / (1 + lockerGstRate / 100) : amount;
     const zoneName = assignment.locker.zone?.name ?? "Zone";
@@ -208,18 +214,18 @@ export async function buildLockerReceipt(assignmentId: string): Promise<Receipt 
         name: `Locker ${assignment.locker.number} (${assignment.locker.zone.name}) — ${assignment.durationType}`,
         quantity: 1,
         unitPrice: Number(assignment.amount) /
-          (1 + Number((assignment.locker as { gstRate?: number | string }).gstRate ?? 0) / 100),
-        gstRate: Number((assignment.locker as { gstRate?: number | string }).gstRate ?? 0),
+          (1 + asNumber((assignment.locker as unknown as Record<string, unknown>).gstRate, 0) / 100),
+        gstRate: asNumber((assignment.locker as unknown as Record<string, unknown>).gstRate, 0),
         lineTotal: Number(assignment.amount),
       },
     ],
     subtotal:
       Number(assignment.amount) /
-      (1 + Number((assignment.locker as { gstRate?: number | string }).gstRate ?? 0) / 100),
+      (1 + asNumber((assignment.locker as unknown as Record<string, unknown>).gstRate, 0) / 100),
     gstAmount:
       Number(assignment.amount) -
       Number(assignment.amount) /
-        (1 + Number((assignment.locker as { gstRate?: number | string }).gstRate ?? 0) / 100),
+        (1 + asNumber((assignment.locker as unknown as Record<string, unknown>).gstRate, 0) / 100),
     discountAmount: 0,
     totalAmount: Number(assignment.amount),
     paymentLines: [{ method: assignment.paymentMethod, amount: Number(assignment.amount) }],
