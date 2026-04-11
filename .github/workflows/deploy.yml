@@ -54,8 +54,7 @@ jobs:
           key: ${{ secrets.SERVER_SSH_KEY }}
           script_stop: true
           script: |
-            set -Eeo pipefail
-            trap 'code=$?; echo "[deploy][error] line ${LINENO}: ${BASH_COMMAND} (exit ${code})"; exit ${code}' ERR
+            set -eu
 
             APP_ROOT="${{ secrets.SERVER_APP_ROOT }}"
             if [ -z "$APP_ROOT" ]; then
@@ -85,7 +84,10 @@ jobs:
             npm ci --include=dev
 
             log_step "Generating Prisma client"
-            npx prisma generate
+            if ! npx prisma generate --schema prisma/schema.prisma; then
+              echo "[deploy][warn] prisma generate failed; retrying with debug output"
+              DEBUG="*" npx prisma generate --schema prisma/schema.prisma
+            fi
 
             if [ "$RUN_SCHEMA" = "true" ]; then
               log_step "Applying database schema (explicitly enabled)"
