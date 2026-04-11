@@ -54,38 +54,51 @@ jobs:
           key: ${{ secrets.SERVER_SSH_KEY }}
           script_stop: true
           script: |
-            set -euo pipefail
+            set -Eeuo pipefail
 
             APP_ROOT="${{ secrets.SERVER_APP_ROOT }}"
             if [ -z "$APP_ROOT" ]; then
               APP_ROOT="/var/www/waterpark-app"
             fi
+            RUN_SCHEMA="${DEPLOY_RUN_SCHEMA:-false}"
+            RUN_SEED="${DEPLOY_RUN_SEED:-false}"
 
+            log_step() {
+              echo ""
+              echo "[deploy] $1"
+            }
+
+            log_step "Preparing repository"
             cd "$APP_ROOT"
             git fetch origin main
             git checkout -f main
             git reset --hard origin/main
 
+            log_step "Installing dependencies"
             cd app
-            echo "[deploy] Installing dependencies"
             npm ci --include=dev
-            echo "[deploy] Generating Prisma client"
+
+            log_step "Generating Prisma client"
             npx prisma generate
 
-            echo "[deploy] Applying database schema"
-            echo "[deploy] Schema changes skipped in CI deploy (data safety mode)."
-
-            if [ "${DEPLOY_RUN_SEED:-false}" = "true" ]; then
-              echo "[deploy] Running seed (explicitly enabled)"
-              npx prisma db seed
+            if [ "$RUN_SCHEMA" = "true" ]; then
+              log_step "Applying database schema (explicitly enabled)"
+              npx prisma db push --accept-data-loss
             else
-              echo "[deploy] Seed skipped (default for production data safety)"
+              log_step "Schema changes skipped in CI deploy (data safety mode)"
             fi
 
-            echo "[deploy] Building Next.js app"
+            if [ "$RUN_SEED" = "true" ]; then
+              log_step "Running seed (explicitly enabled)"
+              npx prisma db seed
+            else
+              log_step "Seed skipped (default for production data safety)"
+            fi
+
+            log_step "Building Next.js app"
             LOCAL_DISABLE_REDIS=true npm run build
 
-            echo "[deploy] Restarting process manager"
+            log_step "Restarting process manager"
             if command -v pm2 >/dev/null 2>&1; then
               if pm2 describe waterpark >/dev/null 2>&1; then
                 pm2 restart waterpark
@@ -98,3 +111,5 @@ jobs:
               pkill -f "next start" || true
               nohup npm run start >/tmp/waterpark.log 2>&1 &
             fi
+
+            log_step "Deploy completed"
