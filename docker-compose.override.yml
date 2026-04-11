@@ -1,0 +1,31 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: builder
+    image: aquaworld-app:dev
+    command: npm run dev
+    working_dir: /app
+    volumes:
+      - ./app:/app
+      - /app/node_modules
+      - /app/.next
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: development
+      CHOKIDAR_USEPOLLING: "true"
+
+  db:
+    ports:
+      - "5432:5432"
+
+  redis:
+    ports:
+      - "6379:6379"
+
+  nginx:
+    ports:
+      - "8080:80"
+      - "8443:443"

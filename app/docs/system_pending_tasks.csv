@@ -1,0 +1,36 @@
+module,area,task,severity,status,hardcoded_found,notes
+RIDES,Admin UI,Convert Ride add/edit drawer to centered modal with full field parity and validation,P1,PENDING,NO,Current drawer works but UX request asks popup-style parity
+RIDES,Admin UI,Add image upload (not only URL) with MIME/size validation,P2,PENDING,NO,Current ride image uses URL only
+RIDES,Data model,Finalize unlimited capacity semantics (null/flag instead of sentinel 999999),P1,PENDING,YES,"Current implementation uses sentinel 999999"
+RIDES,Queue,Implement queue TTL reset at park-close from ParkConfig in background job,P1,PENDING,NO,Current queue increments/decrements exist but no timed reset job
+RIDES,Queue,Backfill queue integrity checker (queue count vs pending riders),P2,PENDING,NO,Needed for drift correction
+RIDES,Scan Security,Bind scan to signed QR payload verification + anti-replay nonce,P0,PENDING,NO,Current access log uses bookingNumber lookup
+RIDES,Usage Limits,Track per-participant ride usage (not only per booking aggregate),P1,PENDING,NO,Current limit check is booking-level per ride
+RIDES,Audit,Add audit events for ride edit/delete/queue override,P2,PENDING,NO,Partially covered
+POS,Booking import,Add explicit 'Import Booking to Cart' confirmation and merge mode,P1,DONE,NO,Added replace vs merge confirmation before import
+POS,Booking search,Add direct scan input for booking QR at POS,P1,DONE,NO,Booking lookup now accepts pasted booking QR JSON payload
+POS,Guest capture,Make ID proof required by config threshold in POS sale path,P1,DONE,NO,Enforced in POS sale API using ParkConfig idProofEnabled/idProofRequiredAbove
+POS,Guest capture,Capture participant-wise details in POS sale flow,P1,DONE,NO,Added participant rows in POS UI and persisted BookingParticipant rows in POS ticket-sale API
+POS,Payments,Support deposit/partial plan and pending-balance transaction from POS,P0,PENDING,NO,Current POS ticket sale confirms full payment only
+POS,Payments,Link POS payment methods to park-config enabled methods centrally,P1,DONE,NO,Added /api/v1/pos/payment-options and backend method enforcement
+POS,Cross-sell,Single checkout cart for tickets+rides+locker+costume+food,P0,PENDING,NO,Requested unified flow not built
+POS,Inventory,Deduct inventory on costume/locker/food sale in same checkout,P0,PENDING,NO,Requires shared order model and stock locks
+POS,Duplicate use,Enforce one-time tokenized redemption per entitlement everywhere,P0,IN_PROGRESS,NO,Ride usage enforcement added; other modules pending
+POS,Offline reliability,Add idempotency keys for POS submit actions,P1,DONE,NO,Frontend now sends idempotency keys for ticket sale and collect-balance
+BOOKING,Validation,Check operating hours + holidays in POS sale API,P1,DONE,NO,POS ticket-sale now validates min/max days ahead, cutoff hour, closed holidays, and closed weekdays
+BOOKING,Numbering,Replace non-readable booking format in POS helper,P2,DONE,YES,POS helper now emits AWP-YYYYMMDD-XXXX with uniqueness check
+BOOKING,Security,Avoid fallback guest defaults for required fields,P1,DONE,YES,Removed hardcoded mobile fallback in POS terminal
+PAYMENTS,Manual UPI,Store encrypted UTR consistently and mask in all responses,P1,DONE,NO,Encrypted writes verified in booking/manual-upi/collect-balance and masked responses applied across booking+CRM APIs
+PAYMENTS,Refunds,Configurable deduction percent applied in refund workflow end-to-end,P1,PENDING,NO,UI asks for this; full backend wiring pending
+PAYMENTS,Reports,Normalize transaction method enums across pages/routes,P1,DONE,YES,Added canonical payment-method normalizer and applied in analytics/admin/dashboard displays
+AUTH,Session,Fix weak dev secrets and enforce 32+ char secrets in non-dev,P1,DONE,YES,Env validation now blocks weak/short auth secrets outside development
+AUTH,Role routing,Ensure all staff subroles route to proper default dashboards,P2,PENDING,NO,Observed fallback/login routing inconsistencies earlier
+SETTINGS,Secrets,Move sensitive key masking/update flow to dedicated endpoints,P1,DONE,NO,Added dedicated /api/v1/settings/secrets update endpoint and removed secret writes from payment settings save
+SETTINGS,Caching,Normalize cacheComponents/use cache usage in all routes,P1,PENDING,NO,Build warning surfaced earlier in project
+REPORTING,Errors,Fix remaining pages failing type checks and broken props,P1,PENDING,NO,Project has multiple unrelated TS errors
+UI,Hydration,Resolve remaining hydration mismatches from browser extensions/layout,P2,PENDING,NO,Observed html/body mismatch logs
+UI,Theming,Audit contrast and accessibility for dark theme across booking/tickets,P2,PENDING,NO,User reported unreadable text in select tickets
+HARD_CODED,POS terminal id,Replace fixed TERMINAL_ID with server-assigned terminal context,P1,DONE,YES,Removed fixed fallbacks; requires query/env terminal id
+HARD_CODED,Defaults,Remove static defaults from helper functions and seed-only assumptions,P2,PENDING,YES,Includes hardcoded defaults scattered across modules
+OPS,Observability,Add structured logs around POS sale/import/scan with request ids,P1,DONE,NO,Added request-scoped logs in POS booking-lookup collect-balance ticket-sale and ride access scan routes
+OPS,Data migrations,Create migration and rollout plan for TicketType.rideId change,P0,PENDING,NO,Run prisma migration and backfill mappings before prod

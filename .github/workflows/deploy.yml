@@ -1,0 +1,135 @@
+name: Deploy Production
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/aquaworld
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: app
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: aquaworld
+          POSTGRES_USER: aquaworld
+          POSTGRES_PASSWORD: aquaworld
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U aquaworld -d aquaworld"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:8-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://aquaworld:aquaworld@localhost:5432/aquaworld?schema=public
+      DIRECT_URL: postgresql://aquaworld:aquaworld@localhost:5432/aquaworld?schema=public
+      REDIS_URL: redis://localhost:6379
+      REDIS_BULL_URL: redis://localhost:6379
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      BETTER_AUTH_URL: http://localhost:3000
+      BETTER_AUTH_SECRET: test-secret-please-change-in-production
+      BETTER_AUTH_TRUSTED_ORIGINS: http://localhost:3000
+      ENCRYPTION_KEY: 12345678901234567890123456789012
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.15.0
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Prisma generate
+        run: npx prisma generate
+
+      - name: Prisma migrate deploy
+        run: npx prisma migrate deploy
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+  deploy:
+    runs-on: ubuntu-24.04
+    needs: test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GHCR_TOKEN }}
+
+      - name: Set tags
+        id: vars
+        run: echo "sha_short=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/arm64
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:latest
+            ${{ env.IMAGE_NAME }}:sha-${{ steps.vars.outputs.sha_short }}
+
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script_stop: true
+          script: |
+            set -euo pipefail
+            mkdir -p /opt/aquaworld
+            cat > /opt/aquaworld/.env <<'EOF'
+            ${{ secrets.ENV_FILE }}
+            EOF
+            cd /opt/aquaworld
+            docker login ghcr.io -u ${{ github.repository_owner }} -p ${{ secrets.GHCR_TOKEN }}
+            docker pull ${{ env.IMAGE_NAME }}:latest
+            docker tag ${{ env.IMAGE_NAME }}:latest aquaworld-app:latest
+            docker compose up -d --no-deps app
+            docker compose exec -T app sh -lc "npx prisma migrate deploy"
+            docker compose exec -T app sh -lc "npm run db:seed || npx prisma db seed"
+            docker image prune -f

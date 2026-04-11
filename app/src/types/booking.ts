@@ -1,0 +1,2 @@
+﻿// booking types
+export type {}

@@ -1,0 +1,2 @@
+﻿// crm types
+export type {}

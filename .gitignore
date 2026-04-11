@@ -1,0 +1,15 @@
+﻿.env
+.env.local
+.env.production
+node_modules/
+.next/
+out/
+dist/
+build/
+.DS_Store
+Thumbs.db
+*.log
+postgres/data/
+app/public/uploads/
+.vscode/
+.idea/

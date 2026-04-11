@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(wc -l \"d:\\\\CODEBASE\\\\waterpark-app/app/src/app\"/**/page.tsx)",
+      "Bash(xargs grep:*)",
+      "Bash(grep -E \"\\\\.ts$\")",
+      "Bash(grep -n \"guestMobile.*9000000000\\\\|default.*phone\" /d/CODEBASE/waterpark-app/app/src/components/pos/*.tsx)"
+    ]
+  }
+}

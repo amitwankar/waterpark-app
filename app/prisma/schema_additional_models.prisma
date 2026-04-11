@@ -1,0 +1,131 @@
+﻿// APPEND THESE MODELS TO prisma/schema.prisma
+
+model Wristband {
+  id            String   @id @default(uuid())
+  rfidTag       String   @unique
+  bookingId     String
+  guestName     String
+  balance       Decimal  @default(0) @db.Decimal(10,2)
+  isActive      Boolean  @default(true)
+  activatedAt   DateTime?
+  createdAt     DateTime @default(now())
+}
+
+model LockerRental {
+  id          String   @id @default(uuid())
+  lockerId    String
+  bookingRef  String?
+  guestName   String
+  guestMobile String
+  rentedAt    DateTime @default(now())
+  returnedAt  DateTime?
+  amountPaid  Decimal  @db.Decimal(10,2) @default(0)
+  createdAt   DateTime @default(now())
+}
+
+model Shift {
+  id          String   @id @default(uuid())
+  name        String
+  startTime   String
+  endTime     String
+  isActive    Boolean  @default(true)
+}
+
+model Attendance {
+  id          String   @id @default(uuid())
+  userId      String
+  shiftId     String?
+  checkIn     DateTime
+  checkOut    DateTime?
+  date        DateTime @db.Date
+  notes       String?
+  createdAt   DateTime @default(now())
+}
+
+model MessageTemplate {
+  id          String   @id @default(uuid())
+  name        String
+  channel     String
+  subject     String?
+  body        String
+  variables   String[]
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+}
+
+model CommunicationLog {
+  id          String   @id @default(uuid())
+  campaignId  String?
+  channel     String
+  recipient   String
+  status      String   @default("SENT")
+  messageId   String?
+  sentAt      DateTime @default(now())
+}
+
+model GuestSegment {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  criteria    Json
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+}
+
+model LoyaltyTransaction {
+  id          String   @id @default(uuid())
+  guestId     String
+  points      Int
+  type        String
+  referenceId String?
+  description String?
+  createdAt   DateTime @default(now())
+}
+
+model Coupon {
+  id              String   @id @default(uuid())
+  code            String   @unique
+  discountType    String
+  discountValue   Decimal  @db.Decimal(10,2)
+  minOrderAmount  Decimal? @db.Decimal(10,2)
+  maxUses         Int?
+  usedCount       Int      @default(0)
+  validFrom       DateTime
+  validTo         DateTime
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+}
+
+model EventPackage {
+  id          String   @id @default(uuid())
+  name        String
+  type        String
+  description String?
+  price       Decimal  @db.Decimal(10,2)
+  capacity    Int
+  includes    String[]
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+}
+
+model Incident {
+  id          String   @id @default(uuid())
+  rideId      String?
+  location    String
+  title       String
+  description String
+  severity    String   @default("LOW")
+  reportedBy  String
+  resolvedAt  DateTime?
+  createdAt   DateTime @default(now())
+}
+
+model SafetyInspection {
+  id          String   @id @default(uuid())
+  assetId     String
+  inspectedBy String
+  passed      Boolean
+  notes       String?
+  nextDue     DateTime?
+  createdAt   DateTime @default(now())
+}

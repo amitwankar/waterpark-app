@@ -1,0 +1,2 @@
+﻿// staff types
+export type {}
