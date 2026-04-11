@@ -54,7 +54,8 @@ jobs:
           key: ${{ secrets.SERVER_SSH_KEY }}
           script_stop: true
           script: |
-            set -Eeuo pipefail
+            set -Eeo pipefail
+            trap 'code=$?; echo "[deploy][error] line ${LINENO}: ${BASH_COMMAND} (exit ${code})"; exit ${code}' ERR
 
             APP_ROOT="${{ secrets.SERVER_APP_ROOT }}"
             if [ -z "$APP_ROOT" ]; then
@@ -67,6 +68,11 @@ jobs:
               echo ""
               echo "[deploy] $1"
             }
+
+            log_step "Deploy flags"
+            echo "[deploy] APP_ROOT=$APP_ROOT"
+            echo "[deploy] DEPLOY_RUN_SCHEMA=$RUN_SCHEMA"
+            echo "[deploy] DEPLOY_RUN_SEED=$RUN_SEED"
 
             log_step "Preparing repository"
             cd "$APP_ROOT"
