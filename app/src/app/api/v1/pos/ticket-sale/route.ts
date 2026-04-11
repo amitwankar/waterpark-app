@@ -451,7 +451,7 @@ export async function POST(req: NextRequest) {
   const lockerGst = lockerLines.reduce((sum, line) => {
     const locker = lockerMap.get(line.lockerId);
     if (!locker) return sum;
-    const gstRate = Number((locker as { gstRate?: number | string }).gstRate ?? lockerGstRate);
+    const gstRate = Number((locker as unknown as Record<string, unknown>).gstRate ?? lockerGstRate);
     return sum + Number(locker.rate ?? 0) * (gstRate / 100);
   }, 0);
   const lockerTotal = lockerSubtotal + lockerGst;
@@ -778,7 +778,7 @@ export async function POST(req: NextRequest) {
       for (const line of lockerLines) {
         const locker = lockerMap.get(line.lockerId)!;
         const baseAmount = Number(locker.rate ?? 0);
-        const resolvedGstRate = Number((locker as { gstRate?: number | string }).gstRate ?? lockerGstRate);
+        const resolvedGstRate = Number((locker as unknown as Record<string, unknown>).gstRate ?? lockerGstRate);
         const totalAmount = Math.round(baseAmount * (1 + resolvedGstRate / 100) * 100) / 100;
         await tx.lockerAssignment.create({
           data: {

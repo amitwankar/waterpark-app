@@ -63,7 +63,7 @@ export async function POST(
     durationType === "FULL_DAY" ? FULL_DAY_HOURS : (durationHours ?? 1);
   const dueAt = addHours(now, hours);
   const baseRate = Number(locker.rate);
-  const gstRate = Number((locker as { gstRate?: number | string }).gstRate ?? 18);
+  const gstRate = Number((locker as unknown as Record<string, unknown>).gstRate ?? 18);
   const amount =
     durationType === "HOURLY"
       ? Math.round(baseRate * hours * (1 + gstRate / 100) * 100) / 100
