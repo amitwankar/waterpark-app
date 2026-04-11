@@ -73,15 +73,19 @@ jobs:
             npx prisma generate
 
             echo "[deploy] Applying database schema"
-            if npx prisma migrate deploy; then
-              echo "[deploy] Prisma migrate deploy completed"
+            if [ -d prisma/migrations ] && [ -n "$(find prisma/migrations -mindepth 1 -maxdepth 1 -type d -print -quit 2>/dev/null)" ]; then
+              npx prisma migrate deploy
+              echo "[deploy] Prisma migrations applied"
             else
-              echo "[deploy] Prisma migrate deploy failed or no migrations; falling back to db push"
-              npx prisma db push --accept-data-loss
+              echo "[deploy] No prisma migrations found. Skipping schema changes for data safety."
             fi
 
-            echo "[deploy] Seeding database (non-fatal)"
-            npx prisma db seed || true
+            if [ "${DEPLOY_RUN_SEED:-false}" = "true" ]; then
+              echo "[deploy] Running seed (explicitly enabled)"
+              npx prisma db seed
+            else
+              echo "[deploy] Seed skipped (default for production data safety)"
+            fi
 
             echo "[deploy] Building Next.js app"
             LOCAL_DISABLE_REDIS=true npm run build
