@@ -63,8 +63,8 @@ jobs:
 
             cd "$APP_ROOT"
             git fetch origin main
-            git checkout main
-            git pull --ff-only origin main
+            git checkout -f main
+            git reset --hard origin/main
 
             cd app
             npm ci --include=dev
