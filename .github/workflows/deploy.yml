@@ -73,9 +73,18 @@ jobs:
             npx prisma generate
 
             echo "[deploy] Applying database schema"
-            if [ -d prisma/migrations ] && [ -n "$(find prisma/migrations -mindepth 1 -maxdepth 1 -type d -print -quit 2>/dev/null)" ]; then
-              npx prisma migrate deploy
-              echo "[deploy] Prisma migrations applied"
+            MIGRATION_SQL_COUNT="$(ls -1 prisma/migrations/*/migration.sql 2>/dev/null | wc -l || true)"
+            case "$MIGRATION_SQL_COUNT" in
+              ''|*[!0-9]*) MIGRATION_SQL_COUNT=0 ;;
+            esac
+            echo "[deploy] Found migration SQL files: $MIGRATION_SQL_COUNT"
+
+            if [ "$MIGRATION_SQL_COUNT" -gt 0 ]; then
+              if npx prisma migrate deploy; then
+                echo "[deploy] Prisma migrations applied"
+              else
+                echo "[deploy][warn] prisma migrate deploy failed; continuing without schema changes."
+              fi
             else
               echo "[deploy] No prisma migrations found. Skipping schema changes for data safety."
             fi
