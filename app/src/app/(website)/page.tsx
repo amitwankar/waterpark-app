@@ -44,7 +44,7 @@ export default async function WebsiteHomePage(): Promise<JSX.Element> {
       <section className="bg-gradient-to-br from-teal-800 via-teal-700 to-cyan-700 text-white">
         <div className="mx-auto grid w-full max-w-7xl gap-10 px-4 py-20 sm:px-6 lg:grid-cols-2 lg:px-8 lg:py-24">
           <div className="space-y-6">
-            <span className="inline-flex rounded-[var(--radius-full)] bg-white/15 px-3 py-1 text-sm">Nagpur's Family Waterpark</span>
+            <span className="inline-flex rounded-[var(--radius-full)] bg-white/15 px-3 py-1 text-sm">Nagpur&apos;s Family Waterpark</span>
             <h1 className="text-4xl font-bold tracking-tight sm:text-5xl">Thrill rides, wave pools and perfect day-outs at {settings.parkName}</h1>
             <p className="max-w-xl text-base text-white/85 sm:text-lg">
               Plan your family visit, school trip, corporate outing or celebration. Live ride updates, transparent pricing and quick booking.
