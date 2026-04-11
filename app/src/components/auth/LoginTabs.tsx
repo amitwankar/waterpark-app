@@ -7,6 +7,7 @@ import { MagicLinkForm } from "@/components/auth/MagicLinkForm";
 import { WhatsAppOtpForm } from "@/components/auth/WhatsAppOtpForm";
 import { EmailPasswordForm } from "@/components/auth/EmailPasswordForm";
 import { GoogleLoginButton } from "@/components/auth/GoogleLoginButton";
+import { authClient } from "@/lib/auth-client";
 import { cn } from "@/lib/utils";
 
 const tabs = ["email", "whatsapp", "magic"] as const;
@@ -53,8 +54,13 @@ export function LoginTabs({ returnUrl }: LoginTabsProps): JSX.Element {
 
       const sessionResponse = await fetch("/api/auth/get-session", { cache: "no-store" });
       if (sessionResponse.ok) {
-        const sessionJson = (await sessionResponse.json()) as { user?: { role?: string } };
-        const role = sessionJson?.user?.role;
+        const sessionJson = (await sessionResponse.json()) as
+          | { user?: { role?: string }; session?: { user?: { role?: string } }; data?: { user?: { role?: string } } }
+          | null;
+        const role =
+          sessionJson?.user?.role ??
+          sessionJson?.session?.user?.role ??
+          sessionJson?.data?.user?.role;
         if (role === "ADMIN") {
           window.location.href = callbackUrl === "/" ? "/admin/dashboard" : callbackUrl;
           return;
@@ -64,8 +70,8 @@ export function LoginTabs({ returnUrl }: LoginTabsProps): JSX.Element {
           return;
         }
       }
-
-      window.location.href = callbackUrl === "/" ? "/guest/my-account" : callbackUrl;
+      await authClient.signOut();
+      setError("This login is for admin/staff accounts only.");
     } finally {
       setLoading(false);
     }
