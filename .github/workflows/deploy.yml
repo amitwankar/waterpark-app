@@ -67,22 +67,35 @@ jobs:
             git reset --hard origin/main
 
             cd app
+            echo "[deploy] Installing dependencies"
             npm ci --include=dev
+            echo "[deploy] Generating Prisma client"
             npx prisma generate
 
-            if [ -d prisma/migrations ] && [ -n "$(find prisma/migrations -mindepth 1 -maxdepth 1 -type d -print -quit 2>/dev/null)" ]; then
-              echo "Prisma migration directories found: yes"
-              npx prisma migrate deploy
+            echo "[deploy] Applying database schema"
+            if npx prisma migrate deploy; then
+              echo "[deploy] Prisma migrate deploy completed"
             else
-              echo "Prisma migration directories found: no. Running prisma db push..."
+              echo "[deploy] Prisma migrate deploy failed or no migrations; falling back to db push"
               npx prisma db push --accept-data-loss
             fi
+
+            echo "[deploy] Seeding database (non-fatal)"
             npx prisma db seed || true
+
+            echo "[deploy] Building Next.js app"
             LOCAL_DISABLE_REDIS=true npm run build
 
-            if pm2 describe waterpark >/dev/null 2>&1; then
-              pm2 restart waterpark
+            echo "[deploy] Restarting process manager"
+            if command -v pm2 >/dev/null 2>&1; then
+              if pm2 describe waterpark >/dev/null 2>&1; then
+                pm2 restart waterpark
+              else
+                pm2 start npm --name waterpark -- start
+              fi
+              pm2 save
             else
-              pm2 start npm --name waterpark -- start
+              echo "[deploy] pm2 not found; starting app with nohup fallback"
+              pkill -f "next start" || true
+              nohup npm run start >/tmp/waterpark.log 2>&1 &
             fi
-            pm2 save
