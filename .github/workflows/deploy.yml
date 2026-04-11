@@ -70,19 +70,11 @@ jobs:
             npm ci --include=dev
             npx prisma generate
 
-            MIGRATION_COUNT=0
-            if [ -d prisma/migrations ]; then
-              MIGRATION_COUNT="$(find prisma/migrations -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | awk '{print $1}')"
-            fi
-            case "$MIGRATION_COUNT" in
-              ''|*[!0-9]*) MIGRATION_COUNT=0 ;;
-            esac
-            echo "Prisma migration directories found: $MIGRATION_COUNT"
-
-            if [ "${MIGRATION_COUNT}" -gt 0 ]; then
+            if [ -d prisma/migrations ] && [ -n "$(find prisma/migrations -mindepth 1 -maxdepth 1 -type d -print -quit 2>/dev/null)" ]; then
+              echo "Prisma migration directories found: yes"
               npx prisma migrate deploy
             else
-              echo "No prisma migrations found. Running prisma db push..."
+              echo "Prisma migration directories found: no. Running prisma db push..."
               npx prisma db push --accept-data-loss
             fi
             npx prisma db seed || true
