@@ -73,10 +73,10 @@ jobs:
             npx prisma generate
 
             echo "[deploy] Applying database schema"
-            MIGRATION_SQL_COUNT="$(ls -1 prisma/migrations/*/migration.sql 2>/dev/null | wc -l || true)"
-            case "$MIGRATION_SQL_COUNT" in
-              ''|*[!0-9]*) MIGRATION_SQL_COUNT=0 ;;
-            esac
+            MIGRATION_SQL_COUNT="$(find prisma/migrations -type f -name migration.sql 2>/dev/null | wc -l | tr -d '[:space:]')"
+            if [ -z "$MIGRATION_SQL_COUNT" ]; then
+              MIGRATION_SQL_COUNT=0
+            fi
             echo "[deploy] Found migration SQL files: $MIGRATION_SQL_COUNT"
 
             if [ "$MIGRATION_SQL_COUNT" -gt 0 ]; then
