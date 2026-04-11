@@ -69,7 +69,14 @@ jobs:
             cd app
             npm ci --include=dev
             npx prisma generate
-            if [ -d prisma/migrations ] && [ "$(find prisma/migrations -mindepth 1 -maxdepth 1 | wc -l)" -gt 0 ]; then
+
+            MIGRATION_COUNT=0
+            if [ -d prisma/migrations ]; then
+              MIGRATION_COUNT="$(find prisma/migrations -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l || echo 0)"
+            fi
+            echo "Prisma migration directories found: $MIGRATION_COUNT"
+
+            if [ "${MIGRATION_COUNT}" -gt 0 ]; then
               npx prisma migrate deploy
             else
               echo "No prisma migrations found. Running prisma db push..."
