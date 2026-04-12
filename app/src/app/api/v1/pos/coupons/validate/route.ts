@@ -14,6 +14,16 @@ const schema = z.object({
   adultPrice: z.number().min(0).optional(),
   childPrice: z.number().min(0).optional(),
   visitDate: z.string().date().optional(),
+  scopeUsage: z
+    .object({
+      ticket: z.boolean().optional(),
+      food: z.boolean().optional(),
+      locker: z.boolean().optional(),
+      costume: z.boolean().optional(),
+      ride: z.boolean().optional(),
+      package: z.boolean().optional(),
+    })
+    .optional(),
 }).strict();
 
 export async function POST(req: NextRequest) {
@@ -42,6 +52,7 @@ export async function POST(req: NextRequest) {
       adultPrice: parsed.data.adultPrice,
       childPrice: parsed.data.childPrice,
       visitDate: parsed.data.visitDate ? new Date(`${parsed.data.visitDate}T00:00:00.000Z`) : undefined,
+      scopeUsage: parsed.data.scopeUsage,
     },
   );
 

@@ -5,6 +5,7 @@
  */
 import "server-only";
 
+import { splitBookingNotes } from "@/lib/booking-meta";
 import { db } from "@/lib/db";
 
 function asNumber(value: unknown, fallback: number): number {
@@ -37,6 +38,11 @@ export interface Receipt {
   paymentLines: Array<{ method: string; amount: number }>;
   createdAt: string;
   qrCode?: string | null; // for booking receipts
+  issuedCoupon?: {
+    code: string;
+    validFrom: string;
+    validTo: string;
+  } | null;
 }
 
 /** Build receipt data from a booking's transactions. */
@@ -55,6 +61,7 @@ export async function buildBookingReceipt(bookingId: string): Promise<Receipt | 
   });
 
   if (!booking) return null;
+  const parsedNotes = splitBookingNotes(booking.notes);
 
   const [parkConfig, foodOrders, lockerAssignments, costumeRentals] = await Promise.all([
     db.parkConfig.findFirst({
@@ -147,6 +154,13 @@ export async function buildBookingReceipt(bookingId: string): Promise<Receipt | 
     })),
     createdAt: booking.createdAt.toISOString(),
     qrCode: booking.qrCode,
+    issuedCoupon: parsedNotes.meta?.issuedCoupon
+      ? {
+          code: parsedNotes.meta.issuedCoupon.code,
+          validFrom: parsedNotes.meta.issuedCoupon.validFrom,
+          validTo: parsedNotes.meta.issuedCoupon.validTo,
+        }
+      : null,
   };
 }
 

@@ -51,6 +51,7 @@ const QUICK_SEARCH_ROUTES: Array<{ label: string; href: string; keywords: string
   { label: "Dashboard", href: "/admin/dashboard", keywords: ["dashboard", "home", "overview"] },
   { label: "Bookings", href: "/admin/bookings", keywords: ["booking", "bookings", "reservation"] },
   { label: "Tickets", href: "/admin/tickets", keywords: ["ticket", "ticket types", "passes"] },
+  { label: "Packages", href: "/admin/packages", keywords: ["package", "packages", "bundle", "offer"] },
   { label: "Payments", href: "/admin/payments", keywords: ["payment", "transactions", "finance"] },
   { label: "Rides", href: "/admin/rides", keywords: ["ride", "rides", "queue"] },
   { label: "Food", href: "/admin/food", keywords: ["food", "beverage", "fnb"] },

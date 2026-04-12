@@ -1,105 +1,97 @@
-import Link from "next/link";
+import { connection } from "next/server";
 
 import { db } from "@/lib/db";
 import { formatCurrency } from "@/lib/utils";
 
-const tabs = ["ALL", "ADULT", "CHILD", "FAMILY", "SENIOR"] as const;
-type PackageTab = (typeof tabs)[number];
-
-interface PackagesPageProps {
-  searchParams?: Promise<Record<string, string | string[] | undefined>>;
-}
-
-interface TicketTypeItem {
+interface PackageCard {
   id: string;
   name: string;
   description: string | null;
-  price: number;
-  minAge: number | null;
-  maxAge: number | null;
+  listedPrice: number;
+  salePrice: number;
+  gstRate: number;
+  items: Array<{ itemType: string; quantity: number; label: string }>;
 }
 
-async function getPackageTickets(): Promise<TicketTypeItem[]> {
-  "use cache";
-
-  const itemsRaw = await db.ticketType.findMany({
+async function getPackages(): Promise<PackageCard[]> {
+  const packages = await db.salesPackage.findMany({
     where: { isActive: true, isDeleted: false },
     orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
-    select: {
-      id: true,
-      name: true,
-      description: true,
-      price: true,
-      minAge: true,
-      maxAge: true,
+    include: {
+      items: {
+        orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+        include: {
+          ticketType: { select: { name: true } },
+          ride: { select: { name: true } },
+          locker: { select: { number: true } },
+          costumeItem: { select: { name: true } },
+          foodItem: { select: { name: true } },
+          foodVariant: { select: { name: true } },
+        },
+      },
     },
   });
 
-  return itemsRaw.map((item) => ({
-    ...item,
-    price: Number(item.price),
+  return packages.map((pkg) => ({
+    id: pkg.id,
+    name: pkg.name,
+    description: pkg.description,
+    listedPrice: Number(pkg.listedPrice),
+    salePrice: Number(pkg.salePrice),
+    gstRate: Number(pkg.gstRate),
+    items: pkg.items.map((item) => ({
+      itemType: item.itemType,
+      quantity: item.quantity,
+      label:
+        item.ticketType?.name ??
+        item.ride?.name ??
+        item.locker?.number ??
+        item.costumeItem?.name ??
+        (item.foodVariant ? `${item.foodItem?.name ?? "Food"} - ${item.foodVariant.name}` : item.foodItem?.name) ??
+        item.itemType,
+    })),
   }));
 }
 
-function classifyTicket(item: TicketTypeItem): PackageTab {
-  const name = item.name.toLowerCase();
-  if (name.includes("family") || name.includes("pack")) return "FAMILY";
-  if (name.includes("senior")) return "SENIOR";
-  if (item.maxAge !== null && item.maxAge <= 12) return "CHILD";
-  if (item.minAge !== null && item.minAge >= 12) return "ADULT";
-  if (name.includes("child") || name.includes("kid")) return "CHILD";
-  return "ADULT";
-}
-
-function readTab(rawTab: string | string[] | undefined): PackageTab {
-  const raw = rawTab;
-  const value = Array.isArray(raw) ? raw[0] : raw;
-  const normalized = String(value ?? "ALL").toUpperCase();
-  if (tabs.includes(normalized as PackageTab)) {
-    return normalized as PackageTab;
-  }
-  return "ALL";
-}
-
-export default async function PackagesPage({ searchParams }: PackagesPageProps): Promise<JSX.Element> {
-  const resolvedSearchParams = searchParams ? await searchParams : undefined;
-  const active = readTab(resolvedSearchParams?.tab);
-  const items = await getPackageTickets();
-  const filtered = items.filter((item) => active === "ALL" || classifyTicket(item) === active);
+export default async function PackagesPage(): Promise<JSX.Element> {
+  await connection();
+  const packages = await getPackages();
 
   return (
-    <div className="mx-auto w-full max-w-7xl space-y-6 px-4 py-12 sm:px-6 lg:px-8">
+    <div className="mx-auto w-full max-w-7xl space-y-8 px-4 py-12 sm:px-6 lg:px-8">
       <div className="space-y-2">
         <h1 className="text-4xl font-bold tracking-tight text-[var(--color-text)]">Packages</h1>
-        <p className="text-[var(--color-text-muted)]">Choose passes based on age groups, family bundles and seasonal offers.</p>
+        <p className="text-[var(--color-text-muted)]">Bundle tickets, rides, lockers, costumes, and food into one counter-ready offer.</p>
       </div>
 
-      <div className="flex flex-wrap gap-2">
-        {tabs.map((tab) => (
-          <Link
-            key={tab}
-            href={tab === "ALL" ? "/packages" : `/packages?tab=${tab}`}
-            className={`rounded-[var(--radius-full)] px-4 py-2 text-sm font-medium ${
-              active === tab ? "bg-[var(--color-primary)] text-white" : "bg-[var(--color-surface-muted)] text-[var(--color-text)]"
-            }`}
-          >
-            {tab}
-          </Link>
-        ))}
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {filtered.map((ticket) => (
-          <article key={ticket.id} className="rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
-            <h2 className="text-lg font-semibold text-[var(--color-text)]">{ticket.name}</h2>
-            <p className="mt-2 text-sm text-[var(--color-text-muted)]">{ticket.description ?? "Great value ticket for a full day of fun."}</p>
-            <p className="mt-5 text-2xl font-bold text-[var(--color-primary)]">{formatCurrency(ticket.price)}</p>
-            <p className="mt-1 text-xs text-[var(--color-text-muted)]">
-              Age: {ticket.minAge ?? 0}+ {ticket.maxAge !== null ? `to ${ticket.maxAge}` : ""}
-            </p>
-          </article>
-        ))}
-      </div>
+      {packages.length === 0 ? (
+        <div className="rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] p-6 text-[var(--color-text-muted)]">
+          No active packages are available right now.
+        </div>
+      ) : (
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {packages.map((pkg) => (
+            <article key={pkg.id} className="rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] p-5">
+              <h2 className="text-lg font-semibold text-[var(--color-text)]">{pkg.name}</h2>
+              <p className="mt-2 text-sm text-[var(--color-text-muted)]">{pkg.description ?? "Bundled offer for a complete park visit."}</p>
+              <div className="mt-5 flex items-end gap-2">
+                <p className="text-2xl font-bold text-[var(--color-primary)]">{formatCurrency(pkg.salePrice)}</p>
+                {pkg.listedPrice > pkg.salePrice ? (
+                  <p className="pb-1 text-sm text-[var(--color-text-muted)] line-through">{formatCurrency(pkg.listedPrice)}</p>
+                ) : null}
+              </div>
+              <p className="mt-1 text-xs text-[var(--color-text-muted)]">+{pkg.gstRate}% GST</p>
+              <div className="mt-4 space-y-1 border-t border-[var(--color-border)] pt-3 text-sm text-[var(--color-text-muted)]">
+                {pkg.items.map((item, index) => (
+                  <p key={`${item.itemType}-${index}`}>
+                    {item.label} x {item.quantity}
+                  </p>
+                ))}
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

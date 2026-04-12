@@ -19,11 +19,11 @@ export default async function WebsiteHomePage(): Promise<JSX.Element> {
       take: 6,
       include: { zone: { select: { name: true } } },
     }),
-    db.ticketType.findMany({
+    db.salesPackage.findMany({
       where: { isActive: true, isDeleted: false },
       orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
       take: 4,
-      select: { id: true, name: true, description: true, price: true },
+      select: { id: true, name: true, description: true, salePrice: true },
     }),
     db.coupon.findMany({
       where: {
@@ -114,7 +114,7 @@ export default async function WebsiteHomePage(): Promise<JSX.Element> {
               <article key={item.id} className="rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-white p-4">
                 <h3 className="font-semibold text-[var(--color-text)]">{item.name}</h3>
                 <p className="mt-1 text-sm text-[var(--color-text-muted)]">{item.description || "Great value package for your visit."}</p>
-                <p className="mt-4 text-xl font-bold text-[var(--color-primary)]">{formatCurrency(Number(item.price))}</p>
+                <p className="mt-4 text-xl font-bold text-[var(--color-primary)]">{formatCurrency(Number(item.salePrice))}</p>
               </article>
             ))}
           </div>

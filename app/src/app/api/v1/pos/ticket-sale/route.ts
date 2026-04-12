@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
+import { buildBookingNotes, emptyBookingMeta, splitBookingNotes } from "@/lib/booking-meta";
 import { db } from "@/lib/db";
 import { encrypt } from "@/lib/encryption";
 import { redis } from "@/lib/redis";
@@ -53,6 +54,11 @@ const rideLineSchema = z.object({
   quantity: z.number().int().min(1).max(50),
 });
 
+const packageLineSchema = z.object({
+  packageId: z.string().min(1),
+  quantity: z.number().int().min(1).max(50),
+});
+
 const participantSchema = z.object({
   name: z.string().trim().max(100).optional(),
   gender: z.enum(["MALE", "FEMALE", "OTHER"]).optional(),
@@ -77,6 +83,10 @@ const saleSchema = z.object({
   lockerLines: z.array(lockerLineSchema).optional(),
   costumeLines: z.array(costumeLineSchema).optional(),
   rideLines: z.array(rideLineSchema).optional(),
+  packageLines: z.array(packageLineSchema).optional(),
+  manualDiscountAmount: z.number().min(0).optional(),
+  issueCouponTemplateId: z.string().min(1).optional(),
+  issueCouponValidityHours: z.number().int().min(1).max(24 * 90).optional(),
   participants: z.array(participantSchema).max(100).optional(),
   paymentLines: z.array(paymentLineSchema).min(1),
   notes: z.string().optional(),
@@ -130,6 +140,10 @@ function getWeekDayFromDateString(dateValue: string): number {
   return (jsDay + 6) % 7; // 0=Mon
 }
 
+function randomCouponSuffix(size = 6): string {
+  return crypto.randomBytes(size).toString("base64url").replace(/[^A-Z0-9]/gi, "").slice(0, size).toUpperCase();
+}
+
 export async function POST(req: NextRequest) {
   const requestId = req.headers.get("x-request-id") ?? undefined;
   const { user, error } = await requireSubRole("TICKET_COUNTER", "SALES_EXECUTIVE");
@@ -177,6 +191,10 @@ export async function POST(req: NextRequest) {
     lockerLines = [],
     costumeLines = [],
     rideLines = [],
+    packageLines = [],
+    manualDiscountAmount = 0,
+    issueCouponTemplateId,
+    issueCouponValidityHours,
     participants = [],
   } =
     parsed.data;
@@ -186,7 +204,8 @@ export async function POST(req: NextRequest) {
     foodLines.length === 0 &&
     lockerLines.length === 0 &&
     costumeLines.length === 0 &&
-    rideLines.length === 0
+    rideLines.length === 0 &&
+    packageLines.length === 0
   ) {
     requestLogger.warn("POS ticket sale rejected: empty cart");
     return NextResponse.json({ error: "Add at least one ticket or add-on item" }, { status: 400 });
@@ -232,8 +251,74 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "No active POS session found" }, { status: 400 });
   }
 
+  const couponTemplate = issueCouponTemplateId
+    ? await db.coupon.findFirst({
+        where: { id: issueCouponTemplateId, isActive: true },
+        include: { couponTicketTypes: { select: { ticketTypeId: true } } },
+      })
+    : null;
+  if (issueCouponTemplateId && !couponTemplate) {
+    return NextResponse.json({ error: "Selected coupon template not found or inactive" }, { status: 400 });
+  }
+
+  const packageIds = Array.from(new Set(packageLines.map((line) => line.packageId)));
+  const packages = packageIds.length > 0
+    ? await db.salesPackage.findMany({
+        where: { id: { in: packageIds }, isActive: true, isDeleted: false },
+        include: { items: true },
+      })
+    : [];
+  if (packages.length !== packageIds.length) {
+    requestLogger.warn({ requested: packageIds.length, found: packages.length }, "POS ticket sale rejected: invalid package");
+    return NextResponse.json({ error: "One or more packages not found or inactive" }, { status: 400 });
+  }
+  const packageMap = new Map(packages.map((pkg) => [pkg.id, pkg]));
+  const expandedTicketLines: Array<{ ticketTypeId: string; quantity: number }> = [];
+  const expandedFoodLines: Array<{ foodItemId: string; foodVariantId?: string; quantity: number; packageIncluded: true }> = [];
+  const expandedLockerLines: Array<{ lockerId: string; amount: number; packageIncluded: true }> = [];
+  const expandedCostumeLines: Array<{ costumeItemId: string; durationHours: number; packageIncluded: true }> = [];
+  const expandedRideLines: Array<{ rideId: string; quantity: number; packageIncluded: true }> = [];
+  const packageCartLines: CartLineItem[] = packageLines.map((line) => {
+    const pkg = packageMap.get(line.packageId)!;
+    for (const item of pkg.items) {
+      const quantity = item.quantity * line.quantity;
+      if (item.itemType === "TICKET" && item.ticketTypeId) {
+        expandedTicketLines.push({ ticketTypeId: item.ticketTypeId, quantity });
+      }
+      if (item.itemType === "RIDE" && item.rideId) {
+        expandedRideLines.push({ rideId: item.rideId, quantity, packageIncluded: true });
+      }
+      if (item.itemType === "LOCKER" && item.lockerId) {
+        expandedLockerLines.push({ lockerId: item.lockerId, amount: 0, packageIncluded: true });
+      }
+      if (item.itemType === "COSTUME" && item.costumeItemId) {
+        expandedCostumeLines.push({ costumeItemId: item.costumeItemId, durationHours: 4, packageIncluded: true });
+      }
+      if (item.itemType === "FOOD" && item.foodItemId) {
+        expandedFoodLines.push({
+          foodItemId: item.foodItemId,
+          foodVariantId: item.foodVariantId ?? undefined,
+          quantity,
+          packageIncluded: true,
+        });
+      }
+    }
+    return {
+      ticketTypeId: pkg.id,
+      name: pkg.name,
+      quantity: line.quantity,
+      unitPrice: Number(pkg.salePrice),
+      gstRate: Number(pkg.gstRate),
+    };
+  });
+  const allTicketItems = [...items, ...expandedTicketLines];
+  const allFoodLines = [...foodLines.map((line) => ({ ...line, packageIncluded: false as const })), ...expandedFoodLines];
+  const allLockerLines = [...lockerLines.map((line) => ({ ...line, packageIncluded: false as const })), ...expandedLockerLines];
+  const allCostumeLines = [...costumeLines.map((line) => ({ ...line, packageIncluded: false as const })), ...expandedCostumeLines];
+  const allRideLines = [...rideLines.map((line) => ({ ...line, packageIncluded: false as const })), ...expandedRideLines];
+
   // Load ticket types
-  const requestedTicketTypeIds = Array.from(new Set(items.map((i) => i.ticketTypeId)));
+  const requestedTicketTypeIds = Array.from(new Set(allTicketItems.map((i) => i.ticketTypeId)));
   const ticketTypes = await db.ticketType.findMany({
     where: {
       id: { in: requestedTicketTypeIds },
@@ -261,7 +346,7 @@ export async function POST(req: NextRequest) {
   }
 
   const ttMap = new Map(ticketTypes.map((t) => [t.id, t]));
-  const missingId = items.find((item) => !ttMap.has(item.ticketTypeId));
+  const missingId = allTicketItems.find((item) => !ttMap.has(item.ticketTypeId));
   if (missingId) {
     requestLogger.warn({ ticketTypeId: missingId.ticketTypeId }, "POS ticket sale rejected: missing ticket type");
     return NextResponse.json(
@@ -281,20 +366,30 @@ export async function POST(req: NextRequest) {
       gstRate: Number(tt.gstRate),
     };
   });
+  const ticketEntitlementLines: CartLineItem[] = allTicketItems.map((item) => {
+    const tt = ttMap.get(item.ticketTypeId)!;
+    return {
+      ticketTypeId: tt.id,
+      name: tt.name,
+      quantity: item.quantity,
+      unitPrice: Number(tt.price),
+      gstRate: Number(tt.gstRate),
+    };
+  });
 
-  const adults = items.reduce((s, i) => {
+  const adults = allTicketItems.reduce((s, i) => {
     const tt = ttMap.get(i.ticketTypeId)!;
     return tt.maxAge && tt.maxAge < 12 ? s : s + i.quantity;
   }, 0);
-  const children = items.reduce((s, i) => {
+  const children = allTicketItems.reduce((s, i) => {
     const tt = ttMap.get(i.ticketTypeId)!;
     return tt.maxAge && tt.maxAge < 12 ? s + i.quantity : s;
   }, 0);
-  const adultPrice = cartLines.find((line) => {
+  const adultPrice = ticketEntitlementLines.find((line) => {
     const tt = ttMap.get(line.ticketTypeId)!;
     return !tt.maxAge || tt.maxAge >= 12;
   })?.unitPrice ?? 0;
-  const childPrice = cartLines.find((line) => {
+  const childPrice = ticketEntitlementLines.find((line) => {
     const tt = ttMap.get(line.ticketTypeId)!;
     return !!tt.maxAge && tt.maxAge < 12;
   })?.unitPrice ?? 0;
@@ -314,6 +409,14 @@ export async function POST(req: NextRequest) {
         adultPrice,
         childPrice,
         visitDate: new Date(`${visitDate}T00:00:00.000Z`),
+        scopeUsage: {
+          ticket: cartLines.length > 0,
+          package: packageLines.length > 0,
+          food: foodLines.length > 0,
+          locker: lockerLines.length > 0,
+          costume: costumeLines.length > 0,
+          ride: rideLines.length > 0,
+        },
       },
     );
     if (!cv.valid) {
@@ -324,15 +427,15 @@ export async function POST(req: NextRequest) {
     discountAmount = cv.coupon.discountAmount;
   }
 
-  const totals = computeCartTotals(cartLines, discountAmount);
+  const totals = computeCartTotals([...cartLines, ...packageCartLines], discountAmount);
 
-  const selectedFoodIds = Array.from(new Set(foodLines.map((line) => line.foodItemId)));
+  const selectedFoodIds = Array.from(new Set(allFoodLines.map((line) => line.foodItemId)));
   const selectedFoodVariantIds = Array.from(
-    new Set(foodLines.map((line) => line.foodVariantId).filter((value): value is string => Boolean(value))),
+    new Set(allFoodLines.map((line) => line.foodVariantId).filter((value): value is string => Boolean(value))),
   );
-  const selectedLockerIds = lockerLines.map((line) => line.lockerId);
-  const selectedCostumeIds = costumeLines.map((line) => line.costumeItemId);
-  const selectedRideIds = Array.from(new Set(rideLines.map((line) => line.rideId)));
+  const selectedLockerIds = allLockerLines.map((line) => line.lockerId);
+  const selectedCostumeIds = allCostumeLines.map((line) => line.costumeItemId);
+  const selectedRideIds = Array.from(new Set(allRideLines.map((line) => line.rideId)));
 
   const [foodItems, foodVariants, lockers, costumeItems, rides, rideTicketTypes, defaultFoodOutlet, parkConfig] = await Promise.all([
     selectedFoodIds.length > 0
@@ -350,7 +453,7 @@ export async function POST(req: NextRequest) {
     selectedLockerIds.length > 0
       ? db.locker.findMany({
         where: { id: { in: selectedLockerIds }, isActive: true, status: "AVAILABLE" },
-        select: { id: true, number: true, rate: true },
+        select: { id: true, number: true, rate: true, gstRate: true },
       })
       : Promise.resolve([]),
     selectedCostumeIds.length > 0
@@ -380,23 +483,23 @@ export async function POST(req: NextRequest) {
     }),
   ]);
 
-  if (foodLines.length > 0 && foodItems.length !== selectedFoodIds.length) {
+  if (allFoodLines.length > 0 && foodItems.length !== selectedFoodIds.length) {
     requestLogger.warn("POS ticket sale rejected: unavailable food item in cart");
     return NextResponse.json({ error: "One or more selected food items are unavailable" }, { status: 400 });
   }
-  if (lockerLines.length > 0 && lockers.length !== lockerLines.length) {
+  if (allLockerLines.length > 0 && lockers.length !== allLockerLines.length) {
     requestLogger.warn("POS ticket sale rejected: unavailable locker in cart");
     return NextResponse.json({ error: "One or more selected lockers are unavailable" }, { status: 400 });
   }
-  if (costumeLines.length > 0 && costumeItems.length !== costumeLines.length) {
+  if (allCostumeLines.length > 0 && costumeItems.length !== allCostumeLines.length) {
     requestLogger.warn("POS ticket sale rejected: unavailable costume in cart");
     return NextResponse.json({ error: "One or more selected costumes are unavailable" }, { status: 400 });
   }
-  if (rideLines.length > 0 && rides.length !== selectedRideIds.length) {
+  if (allRideLines.length > 0 && rides.length !== selectedRideIds.length) {
     requestLogger.warn("POS ticket sale rejected: unavailable ride in cart");
     return NextResponse.json({ error: "One or more selected rides are unavailable" }, { status: 400 });
   }
-  if (foodLines.length > 0 && !defaultFoodOutlet) {
+  if (allFoodLines.length > 0 && !defaultFoodOutlet) {
     return NextResponse.json({ error: "No active food outlet configured" }, { status: 400 });
   }
 
@@ -407,7 +510,7 @@ export async function POST(req: NextRequest) {
   const rideMap = new Map(rides.map((ride) => [ride.id, ride]));
   const rideTicketMap = new Map(rideTicketTypes.map((ticket) => [ticket.rideId!, ticket]));
 
-  const normalizedFoodLines = foodLines.map((line) => {
+  const normalizedFoodLines = allFoodLines.map((line) => {
     const item = foodMap.get(line.foodItemId);
     if (!item) return null;
     const variant = line.foodVariantId ? foodVariantMap.get(line.foodVariantId) : null;
@@ -432,57 +535,60 @@ export async function POST(req: NextRequest) {
     foodItemId: string;
     foodVariantId?: string;
     quantity: number;
+    packageIncluded?: boolean;
     variantName: string | null;
     unitPrice: number;
     gstRate: number;
   }>;
 
-  const foodSubtotal = safeFoodLines.reduce((sum, line) => sum + line.unitPrice * line.quantity, 0);
-  const foodGst = safeFoodLines.reduce((sum, line) => sum + line.unitPrice * line.quantity * (line.gstRate / 100), 0);
+  const foodSubtotal = safeFoodLines.reduce((sum, line) => sum + (line.packageIncluded ? 0 : line.unitPrice * line.quantity), 0);
+  const foodGst = safeFoodLines.reduce((sum, line) => sum + (line.packageIncluded ? 0 : line.unitPrice * line.quantity * (line.gstRate / 100)), 0);
   const foodTotal = safeFoodLines.reduce((sum, line) => {
-    return sum + line.unitPrice * line.quantity * (1 + line.gstRate / 100);
+    return sum + (line.packageIncluded ? 0 : line.unitPrice * line.quantity * (1 + line.gstRate / 100));
   }, 0);
   const lockerGstRate = Number(parkConfig?.lockerGstRate ?? 0);
-  const lockerSubtotal = lockerLines.reduce((sum, line) => {
+  const lockerSubtotal = allLockerLines.reduce((sum, line) => {
     const locker = lockerMap.get(line.lockerId);
     if (!locker) return sum;
-    return sum + Number(locker.rate ?? 0);
+    return sum + (line.packageIncluded ? 0 : Number(locker.rate ?? 0));
   }, 0);
-  const lockerGst = lockerLines.reduce((sum, line) => {
+  const lockerGst = allLockerLines.reduce((sum, line) => {
     const locker = lockerMap.get(line.lockerId);
     if (!locker) return sum;
     const gstRate = Number((locker as unknown as Record<string, unknown>).gstRate ?? lockerGstRate);
-    return sum + Number(locker.rate ?? 0) * (gstRate / 100);
+    return sum + (line.packageIncluded ? 0 : Number(locker.rate ?? 0) * (gstRate / 100));
   }, 0);
   const lockerTotal = lockerSubtotal + lockerGst;
-  const costumeSubtotal = costumeLines.reduce((sum, line) => {
+  const costumeSubtotal = allCostumeLines.reduce((sum, line) => {
     const item = costumeMap.get(line.costumeItemId);
     if (!item) return sum;
-    return sum + Number(item.rentalRate);
+    return sum + (line.packageIncluded ? 0 : Number(item.rentalRate));
   }, 0);
-  const costumeGst = costumeLines.reduce((sum, line) => {
+  const costumeGst = allCostumeLines.reduce((sum, line) => {
     const item = costumeMap.get(line.costumeItemId);
     if (!item) return sum;
     const gstRate = Number(item.gstRate ?? 0);
     const resolvedGst = gstRate > 0 ? gstRate : Number(parkConfig?.defaultGstRate ?? 18);
-    return sum + Number(item.rentalRate) * (resolvedGst / 100);
+    return sum + (line.packageIncluded ? 0 : Number(item.rentalRate) * (resolvedGst / 100));
   }, 0);
   const costumeTotal = costumeSubtotal + costumeGst;
-  const rideSubtotal = rideLines.reduce((sum, line) => {
+  const rideSubtotal = allRideLines.reduce((sum, line) => {
     const ride = rideMap.get(line.rideId);
     if (!ride) return sum;
-    return sum + Number(ride.entryFee) * line.quantity;
+    return sum + (line.packageIncluded ? 0 : Number(ride.entryFee) * line.quantity);
   }, 0);
-  const rideGst = rideLines.reduce((sum, line) => {
+  const rideGst = allRideLines.reduce((sum, line) => {
     const ride = rideMap.get(line.rideId);
     if (!ride) return sum;
     const gstRate = Number(ride.gstRate ?? parkConfig?.defaultGstRate ?? 18);
-    return sum + Number(ride.entryFee) * line.quantity * (gstRate / 100);
+    return sum + (line.packageIncluded ? 0 : Number(ride.entryFee) * line.quantity * (gstRate / 100));
   }, 0);
   const rideTotal = rideSubtotal + rideGst;
   const addOnSubtotal = foodSubtotal + lockerSubtotal + costumeSubtotal + rideSubtotal;
   const addOnGst = foodGst + lockerGst + costumeGst + rideGst;
-  const grandTotal = Math.round((totals.totalAmount + foodTotal + lockerTotal + costumeTotal + rideTotal) * 100) / 100;
+  const grossGrandTotal = Math.round((totals.totalAmount + foodTotal + lockerTotal + costumeTotal + rideTotal) * 100) / 100;
+  const appliedManualDiscount = Math.min(Math.max(0, Number(manualDiscountAmount || 0)), grossGrandTotal);
+  const grandTotal = Math.round((grossGrandTotal - appliedManualDiscount) * 100) / 100;
 
   // Validate split payment
   const splitCheck = validateSplitPayment(paymentLines as SplitPaymentLine[], grandTotal);
@@ -492,7 +598,7 @@ export async function POST(req: NextRequest) {
   }
 
   const settings = await getSettings();
-  const totalGuests = cartLines.reduce((sum, line) => sum + line.quantity, 0);
+  const totalGuests = ticketEntitlementLines.reduce((sum, line) => sum + line.quantity, 0);
   const now = getKolkataNowParts();
   const visitDayDiff = Math.floor(
     (new Date(`${visitDate}T00:00:00+05:30`).getTime() - new Date(`${now.date}T00:00:00+05:30`).getTime()) /
@@ -558,10 +664,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Selected payment method is disabled in park settings" }, { status: 400 });
   }
 
-  const participantSlots = cartLines.flatMap((line) =>
+  const participantSlots = ticketEntitlementLines.flatMap((line) =>
     Array.from({ length: line.quantity }).map(() => line.ticketTypeId),
   );
-  const participantByTicket = new Set(cartLines.map((line) => line.ticketTypeId));
+  const participantByTicket = new Set(ticketEntitlementLines.map((line) => line.ticketTypeId));
   if (participants.some((participant) => !participantByTicket.has(participant.ticketTypeId))) {
     requestLogger.warn("POS ticket sale rejected: participant with invalid ticket type");
     return NextResponse.json({ error: "Participant contains invalid ticket type" }, { status: 400 });
@@ -595,6 +701,7 @@ export async function POST(req: NextRequest) {
   const bookingNumber = await generateBookingNumber();
   const qrCode = generateBookingQrContent({ bookingId, bookingNumber, visitDate });
 
+  let issuedCoupon: { id: string; code: string; validFrom: string; validTo: string } | null = null;
   const result = await db.$transaction(async (tx) => {
     // Create booking
     const booking = await tx.booking.create({
@@ -606,26 +713,35 @@ export async function POST(req: NextRequest) {
         guestMobile,
         guestEmail: guestEmail?.trim() || null,
         visitDate: new Date(visitDate),
-        adults: adults || items.reduce((s, i) => s + i.quantity, 0),
+        adults: adults || allTicketItems.reduce((s, i) => s + i.quantity, 0),
         children,
         idProofType: idProofType ?? null,
         idProofNumber: idProofNumber ? encrypt(idProofNumber.replace(/\s+/g, "").toUpperCase()) : null,
         idProofLabel: idProofType === "OTHER" ? idProofLabel?.trim() || null : null,
         subtotal: totals.subtotal + addOnSubtotal,
         gstAmount: totals.gstAmount + addOnGst,
-        discountAmount: totals.discountAmount,
-        totalAmount: totals.totalAmount + addOnSubtotal + addOnGst,
+        discountAmount: totals.discountAmount + appliedManualDiscount,
+        totalAmount: grandTotal,
         status: "CONFIRMED",
         couponId,
         notes,
         bookingTickets: {
-          create: cartLines.map((line) => ({
-            ticketTypeId: line.ticketTypeId,
-            quantity: line.quantity,
-            unitPrice: line.unitPrice,
-            gstRate: line.gstRate,
-            totalPrice: line.unitPrice * line.quantity,
-          })),
+          create: [
+            ...cartLines.map((line) => ({
+              ticketTypeId: line.ticketTypeId,
+              quantity: line.quantity,
+              unitPrice: line.unitPrice,
+              gstRate: line.gstRate,
+              totalPrice: line.unitPrice * line.quantity,
+            })),
+            ...expandedTicketLines.map((line) => ({
+              ticketTypeId: line.ticketTypeId,
+              quantity: line.quantity,
+              unitPrice: 0,
+              gstRate: 0,
+              totalPrice: 0,
+            })),
+          ],
         },
         participants: {
           create: builtParticipants.map((participant) => ({
@@ -640,8 +756,8 @@ export async function POST(req: NextRequest) {
     });
 
     // Ensure ride-linked ticket types exist
-    if (rideLines.length > 0) {
-      for (const line of rideLines) {
+    if (allRideLines.length > 0) {
+      for (const line of allRideLines) {
         if (rideTicketMap.has(line.rideId)) continue;
         const ride = rideMap.get(line.rideId)!;
         const created = await tx.ticketType.create({
@@ -661,19 +777,20 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    if (rideLines.length > 0) {
+    if (allRideLines.length > 0) {
       await tx.bookingTicket.createMany({
-        data: rideLines.map((line) => {
+        data: allRideLines.map((line) => {
           const ride = rideMap.get(line.rideId)!;
           const ticket = rideTicketMap.get(line.rideId)!;
-          const gstRate = Number(ride.gstRate ?? parkConfig?.defaultGstRate ?? 18);
+          const unitPrice = line.packageIncluded ? 0 : Number(ride.entryFee);
+          const gstRate = line.packageIncluded ? 0 : Number(ride.gstRate ?? parkConfig?.defaultGstRate ?? 18);
           return {
             bookingId: booking.id,
             ticketTypeId: ticket.id,
             quantity: line.quantity,
-            unitPrice: Number(ride.entryFee),
+            unitPrice,
             gstRate,
-            totalPrice: Number(ride.entryFee) * line.quantity,
+            totalPrice: unitPrice * line.quantity,
           };
         }),
       });
@@ -735,10 +852,10 @@ export async function POST(req: NextRequest) {
       const foodPaymentMethod: "CASH" | "UPI" | "WRISTBAND" =
         method === "MANUAL_UPI" ? "UPI" : "CASH";
       const foodSubtotal = safeFoodLines.reduce((sum, line) => {
-        return sum + line.unitPrice * line.quantity;
+        return sum + (line.packageIncluded ? 0 : line.unitPrice * line.quantity);
       }, 0);
       const foodGst = safeFoodLines.reduce((sum, line) => {
-        return sum + line.unitPrice * line.quantity * (line.gstRate / 100);
+        return sum + (line.packageIncluded ? 0 : line.unitPrice * line.quantity * (line.gstRate / 100));
       }, 0);
 
       await tx.foodOrder.create({
@@ -756,15 +873,16 @@ export async function POST(req: NextRequest) {
           orderItems: {
             create: safeFoodLines.map((line) => {
               const item = foodMap.get(line.foodItemId)!;
+              const unitPrice = line.packageIncluded ? 0 : line.unitPrice;
               return {
                 foodItemId: item.id,
                 foodVariantId: line.foodVariantId ?? null,
                 name: item.name,
                 variantName: line.variantName,
                 quantity: line.quantity,
-                unitPrice: line.unitPrice,
-                gstRate: line.gstRate,
-                totalPrice: line.unitPrice * line.quantity,
+                unitPrice,
+                gstRate: line.packageIncluded ? 0 : line.gstRate,
+                totalPrice: unitPrice * line.quantity,
               };
             }),
           },
@@ -772,14 +890,14 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    if (lockerLines.length > 0) {
+    if (allLockerLines.length > 0) {
       const dueAt = new Date();
       dueAt.setHours(23, 59, 59, 999);
-      for (const line of lockerLines) {
+      for (const line of allLockerLines) {
         const locker = lockerMap.get(line.lockerId)!;
         const baseAmount = Number(locker.rate ?? 0);
         const resolvedGstRate = Number((locker as unknown as Record<string, unknown>).gstRate ?? lockerGstRate);
-        const totalAmount = Math.round(baseAmount * (1 + resolvedGstRate / 100) * 100) / 100;
+        const totalAmount = line.packageIncluded ? 0 : Math.round(baseAmount * (1 + resolvedGstRate / 100) * 100) / 100;
         await tx.lockerAssignment.create({
           data: {
             lockerId: locker.id,
@@ -801,8 +919,8 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    if (costumeLines.length > 0) {
-      for (const line of costumeLines) {
+    if (allCostumeLines.length > 0) {
+      for (const line of allCostumeLines) {
         const item = costumeMap.get(line.costumeItemId)!;
         const dueAt = new Date(Date.now() + line.durationHours * 60 * 60 * 1000);
         await tx.costumeRental.create({
@@ -814,7 +932,7 @@ export async function POST(req: NextRequest) {
             guestMobile,
             rentedById: user!.id,
             dueAt,
-            rentalAmount: item.rentalRate,
+            rentalAmount: line.packageIncluded ? 0 : item.rentalRate,
             depositAmount: 0,
             depositPaid: false,
             paymentMethod: paymentLines[0]?.method ?? "CASH",
@@ -828,10 +946,97 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    if (couponTemplate) {
+      const now = new Date();
+      const validityHours = Math.max(1, Number(issueCouponValidityHours ?? 24));
+      const validTo = new Date(now.getTime() + validityHours * 60 * 60 * 1000);
+
+      let createdCoupon: { id: string; code: string; validFrom: Date; validTo: Date } | null = null;
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        const code = `${couponTemplate.code}-${randomCouponSuffix(6)}`;
+        try {
+          createdCoupon = await tx.coupon.create({
+            data: {
+              code,
+              title: couponTemplate.title,
+              description: couponTemplate.description,
+              discountType: couponTemplate.discountType,
+              discountValue: couponTemplate.discountValue,
+              target: couponTemplate.target,
+              appliesTo: couponTemplate.appliesTo,
+              minOrderAmount: couponTemplate.minOrderAmount,
+              minBookingAmount: couponTemplate.minBookingAmount,
+              minGuests: couponTemplate.minGuests,
+              maxUses: 1,
+              maxUsesPerUser: 1,
+              currentUses: 0,
+              usedCount: 0,
+              validFrom: now,
+              validTo,
+              validUntil: validTo,
+              validDays: couponTemplate.validDays,
+              validForDates: couponTemplate.validForDates,
+              allowedTiers: couponTemplate.allowedTiers,
+              isPublicOffer: false,
+              isActive: true,
+              isDeleted: false,
+              applicableFor: couponTemplate.applicableFor,
+              freeTicketTypeId: couponTemplate.freeTicketTypeId,
+              buyXQty: couponTemplate.buyXQty,
+              buyYQty: couponTemplate.buyYQty,
+              flatPerTicketAmount: couponTemplate.flatPerTicketAmount,
+              foodDiscountValue: couponTemplate.foodDiscountValue,
+              foodDiscountIsPercent: couponTemplate.foodDiscountIsPercent,
+              corporateCode: couponTemplate.corporateCode,
+              maxDiscountCap: couponTemplate.maxDiscountCap,
+            },
+          });
+          break;
+        } catch {
+          // retry with a new suffix if collision happens
+        }
+      }
+
+      if (createdCoupon) {
+        if (couponTemplate.couponTicketTypes.length > 0) {
+          await tx.couponTicketType.createMany({
+            data: couponTemplate.couponTicketTypes.map((line) => ({
+              couponId: createdCoupon!.id,
+              ticketTypeId: line.ticketTypeId,
+            })),
+          });
+        }
+        const parsedNotes = splitBookingNotes(booking.notes);
+        const nextNotes = buildBookingNotes(
+          parsedNotes.userNotes,
+          parsedNotes.meta?.posPreload ?? null,
+          {
+            ...(parsedNotes.meta ?? emptyBookingMeta(parsedNotes.userNotes)),
+            issuedCoupon: {
+              id: createdCoupon.id,
+              code: createdCoupon.code,
+              validFrom: createdCoupon.validFrom.toISOString(),
+              validTo: createdCoupon.validTo.toISOString(),
+            },
+          },
+        );
+        await tx.booking.update({
+          where: { id: booking.id },
+          data: { notes: nextNotes },
+        });
+        issuedCoupon = {
+          id: createdCoupon.id,
+          code: createdCoupon.code,
+          validFrom: createdCoupon.validFrom.toISOString(),
+          validTo: createdCoupon.validTo.toISOString(),
+        };
+      }
+    }
+
     return booking;
   });
 
-  const rideQueueIncrements = cartLines.reduce<Map<string, number>>((acc, line) => {
+  const rideQueueIncrements = ticketEntitlementLines.reduce<Map<string, number>>((acc, line) => {
     const ticket = ttMap.get(line.ticketTypeId);
     const rideId = (ticket as { rideId?: string | null } | undefined)?.rideId ?? null;
     if (!rideId) return acc;
@@ -839,7 +1044,7 @@ export async function POST(req: NextRequest) {
     acc.set(rideId, current + line.quantity);
     return acc;
   }, new Map());
-  for (const rideLine of rideLines) {
+  for (const rideLine of allRideLines) {
     const current = rideQueueIncrements.get(rideLine.rideId) ?? 0;
     rideQueueIncrements.set(rideLine.rideId, current + rideLine.quantity);
   }
@@ -872,12 +1077,12 @@ export async function POST(req: NextRequest) {
       bookingNumber: result.bookingNumber,
       visitDate,
       qrLink: `${appUrl}/booking/confirmation/${result.bookingNumber}`,
-      ticketLines: cartLines.map((line) => ({
+      ticketLines: [...cartLines, ...packageCartLines].map((line) => ({
         name: line.name,
         quantity: line.quantity,
         unitPrice: line.unitPrice,
       })),
-      totalAmount: totals.totalAmount + addOnSubtotal + addOnGst,
+      totalAmount: grandTotal,
     }).catch(() => { /* non-fatal */ });
   }
 
@@ -887,6 +1092,7 @@ export async function POST(req: NextRequest) {
     qrCode,
     totals: {
       ...totals,
+      discountAmount: Math.round((totals.discountAmount + appliedManualDiscount) * 100) / 100,
       addOns: {
         food: Math.round(foodTotal * 100) / 100,
         locker: Math.round(lockerTotal * 100) / 100,
@@ -894,8 +1100,10 @@ export async function POST(req: NextRequest) {
         ride: Math.round(rideTotal * 100) / 100,
         gst: Math.round(addOnGst * 100) / 100,
       },
+      manualDiscountAmount: Math.round(appliedManualDiscount * 100) / 100,
       grandTotal,
     },
+    issuedCoupon,
   };
 
   if (idempotencyRedisKey) {

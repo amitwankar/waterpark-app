@@ -82,7 +82,8 @@ jobs:
             log_step "Generating Prisma client"
             npx prisma generate --schema prisma/schema.prisma || echo "[deploy][warn] prisma generate returned non-zero; continuing to build for diagnostics"
 
-            log_step "Schema changes skipped in CI deploy (production data safety)"
+            log_step "Applying non-destructive database schema changes"
+            npx prisma db push --skip-generate --schema prisma/schema.prisma
             log_step "Seed skipped in CI deploy (production data safety)"
 
             log_step "Building Next.js app"

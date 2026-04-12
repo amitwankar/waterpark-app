@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { CouponAppliesTo, CouponDiscountType, CouponTarget, GuestTier, WeekDay } from "@prisma/client";
 import { z } from "zod";
 
+import { encodeCouponScopeMatrix, resolveCouponScopeMatrix } from "@/lib/coupon-scope";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/session";
 
@@ -29,6 +30,16 @@ const updateSchema = z
     target: z.nativeEnum(CouponTarget).optional(),
     allowedTiers: z.array(z.nativeEnum(GuestTier)).optional(),
     appliesTo: z.nativeEnum(CouponAppliesTo).optional(),
+    couponScope: z
+      .object({
+        ticket: z.boolean().optional(),
+        food: z.boolean().optional(),
+        locker: z.boolean().optional(),
+        costume: z.boolean().optional(),
+        ride: z.boolean().optional(),
+        package: z.boolean().optional(),
+      })
+      .optional(),
     ticketTypeIds: z.array(z.string().cuid()).optional(),
     buyXQty: z.coerce.number().int().min(1).max(50).nullable().optional(),
     buyYQty: z.coerce.number().int().min(1).max(50).nullable().optional(),
@@ -80,6 +91,7 @@ export async function GET(
       maxDiscountCap: coupon.maxDiscountCap ? Number(coupon.maxDiscountCap) : null,
       flatPerTicketAmount: coupon.flatPerTicketAmount ? Number(coupon.flatPerTicketAmount) : null,
       foodDiscountValue: coupon.foodDiscountValue ? Number(coupon.foodDiscountValue) : null,
+      couponScope: resolveCouponScopeMatrix(coupon.applicableFor),
       redemptions: coupon.redemptions.map((item) => ({
         ...item,
         discountAmount: Number(item.discountAmount),
@@ -108,6 +120,12 @@ export async function PUT(
   }
 
   const payload = parsed.data;
+  if (payload.couponScope) {
+    const hasAnyScope = Object.values(payload.couponScope).some(Boolean);
+    if (!hasAnyScope) {
+      return NextResponse.json({ message: "Select at least one coupon scope" }, { status: 400 });
+    }
+  }
 
   const updated = await db.$transaction(async (tx) => {
     const coupon = await tx.coupon.update({
@@ -131,6 +149,7 @@ export async function PUT(
         target: payload.target,
         allowedTiers: payload.allowedTiers,
         appliesTo: payload.appliesTo,
+        applicableFor: payload.couponScope ? encodeCouponScopeMatrix(payload.couponScope) : undefined,
         buyXQty: payload.buyXQty,
         buyYQty: payload.buyYQty,
         freeTicketTypeId: payload.freeTicketTypeId,

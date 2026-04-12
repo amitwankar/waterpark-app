@@ -12,6 +12,16 @@ const validateSchema = z
     adultPrice: z.coerce.number().min(0).default(0),
     childPrice: z.coerce.number().min(0).default(0),
     ticketTypeIds: z.array(z.string().trim().min(1)).default([]),
+    scopeUsage: z
+      .object({
+        ticket: z.boolean().optional(),
+        food: z.boolean().optional(),
+        locker: z.boolean().optional(),
+        costume: z.boolean().optional(),
+        ride: z.boolean().optional(),
+        package: z.boolean().optional(),
+      })
+      .optional(),
     visitDate: z.string().date(),
     mobile: z.string().trim().regex(/^[6-9]\d{9}$/),
   })
@@ -34,6 +44,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     adultPrice: payload.adultPrice,
     childPrice: payload.childPrice,
     ticketTypeIds: payload.ticketTypeIds,
+    scopeUsage: payload.scopeUsage,
     visitDate: new Date(`${payload.visitDate}T00:00:00.000Z`),
     mobile: payload.mobile,
   });

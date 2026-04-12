@@ -5,6 +5,7 @@
 import "server-only";
 
 import { evaluateCoupon } from "@/lib/coupon";
+import { type CouponScopeMatrix } from "@/lib/coupon-scope";
 import { db } from "@/lib/db";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -42,6 +43,7 @@ export async function validateCoupon(
     adultPrice?: number;
     childPrice?: number;
     visitDate?: Date;
+    scopeUsage?: Partial<CouponScopeMatrix>;
   },
 ): Promise<
   | { valid: true; coupon: { id: string; code: string; discountAmount: number; description: string | null } }
@@ -58,6 +60,7 @@ export async function validateCoupon(
     ticketTypeIds,
     visitDate: context?.visitDate ?? new Date(),
     mobile: context?.mobile ?? "9000000000",
+    scopeUsage: context?.scopeUsage,
   });
 
   if (!result.valid || !result.couponId || !result.couponCode) {

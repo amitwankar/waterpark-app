@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { splitBookingNotes } from "@/lib/booking-meta";
 import { db } from "@/lib/db";
 import { withRequestContext } from "@/lib/logger";
 import { requireSubRole } from "@/lib/session";
@@ -82,6 +83,7 @@ export async function GET(req: NextRequest) {
   });
 
   const results = bookings.map((b) => {
+    const parsedNotes = splitBookingNotes(b.notes);
     const paid = b.transactions.reduce((s, t) => s + Number(t.amount), 0);
     const balance = Math.round((Number(b.totalAmount) - paid) * 100) / 100;
     const lockerPending = b.lockerAssignments.filter((row) => row.notes?.includes("PREBOOKED:PENDING")).length;
@@ -113,6 +115,7 @@ export async function GET(req: NextRequest) {
         costume: { pending: costumePending, delivered: costumeDelivered },
         food: { pendingQty: foodQty },
       },
+      posPreload: parsedNotes.meta?.posPreload ?? null,
     };
   });
 

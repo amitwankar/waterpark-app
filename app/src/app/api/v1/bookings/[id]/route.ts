@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { auth } from "@/lib/auth";
 import { parseDateOnlyToUtc, sanitizeGuestName, sanitizeMobile, sanitizeOptionalEmail } from "@/lib/booking";
+import { buildBookingNotes, splitBookingNotes } from "@/lib/booking-meta";
 import { db } from "@/lib/db";
 import { maskIdProof, maskUpiRef } from "@/lib/encryption";
 
@@ -93,6 +94,7 @@ export async function GET(
   if (!booking) {
     return NextResponse.json({ message: "Booking not found" }, { status: 404 });
   }
+  const parsedNotes = splitBookingNotes(booking.notes);
 
   if (!isPublic) {
     const session = await auth.api.getSession({
@@ -146,7 +148,8 @@ export async function GET(
       status: booking.status,
       checkedInAt: booking.checkedInAt,
       qrCode: booking.qrCode,
-      notes: booking.notes,
+      notes: parsedNotes.userNotes,
+      posPreload: parsedNotes.meta?.posPreload ?? null,
       createdAt: booking.createdAt,
       updatedAt: booking.updatedAt,
       coupon: booking.coupon
@@ -213,7 +216,7 @@ export async function PUT(
 
   const existing = await db.booking.findUnique({
     where: { id },
-    select: { id: true, userId: true, status: true },
+    select: { id: true, userId: true, status: true, notes: true },
   });
   if (!existing) return NextResponse.json({ message: "Booking not found" }, { status: 404 });
 
@@ -231,7 +234,10 @@ export async function PUT(
   if (payload.guestName !== undefined) updateData.guestName = sanitizeGuestName(payload.guestName);
   if (payload.guestMobile !== undefined) updateData.guestMobile = sanitizeMobile(payload.guestMobile);
   if (payload.guestEmail !== undefined) updateData.guestEmail = sanitizeOptionalEmail(payload.guestEmail);
-  if (payload.notes !== undefined) updateData.notes = payload.notes.trim() ? payload.notes.trim() : null;
+  if (payload.notes !== undefined) {
+    const existingMeta = splitBookingNotes(existing.notes).meta ?? null;
+    updateData.notes = buildBookingNotes(payload.notes.trim() ? payload.notes.trim() : null, existingMeta?.posPreload ?? null, existingMeta);
+  }
   if (payload.visitDate !== undefined) {
     const parsedVisitDate = parseDateOnlyToUtc(payload.visitDate);
     if (!parsedVisitDate) return NextResponse.json({ message: "Invalid visit date" }, { status: 400 });
@@ -253,7 +259,14 @@ export async function PUT(
     },
   });
 
-  return NextResponse.json({ booking: updated });
+  const parsedUpdatedNotes = splitBookingNotes(updated.notes);
+  return NextResponse.json({
+    booking: {
+      ...updated,
+      notes: parsedUpdatedNotes.userNotes,
+      posPreload: parsedUpdatedNotes.meta?.posPreload ?? null,
+    },
+  });
 }
 
 export async function DELETE(

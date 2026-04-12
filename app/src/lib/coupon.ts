@@ -1,5 +1,6 @@
 import { CouponAppliesTo, CouponDiscountType, CouponTarget, GuestTier, Prisma, WeekDay } from "@prisma/client";
 
+import { isCouponScopeAllowed, resolveCouponScopeMatrix, type CouponScopeMatrix } from "@/lib/coupon-scope";
 import { db } from "@/lib/db";
 
 export interface CouponValidationContext {
@@ -15,6 +16,7 @@ export interface CouponValidationContext {
   mobile: string;
   userId?: string | null;
   isFoodBooking?: boolean;
+  scopeUsage?: Partial<CouponScopeMatrix>;
 }
 
 export interface CouponEvaluationResult {
@@ -259,6 +261,11 @@ export async function evaluateCoupon(context: CouponValidationContext): Promise<
     )
   ) {
     return { valid: false, message: "Coupon does not apply to selected tickets", discountAmount: 0, freeLocker: false };
+  }
+
+  const scopeMatrix = resolveCouponScopeMatrix(coupon.applicableFor);
+  if (!isCouponScopeAllowed(scopeMatrix, context.scopeUsage)) {
+    return { valid: false, message: "Coupon does not apply to selected items", discountAmount: 0, freeLocker: false };
   }
 
   const discountAmount = computeDiscountByType(coupon.discountType, context, coupon);

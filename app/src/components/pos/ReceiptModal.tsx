@@ -32,6 +32,11 @@ interface Receipt {
   paymentLines: PaymentLine[];
   createdAt: string;
   qrCode?: string;
+  issuedCoupon?: {
+    code: string;
+    validFrom: string;
+    validTo: string;
+  } | null;
 }
 
 interface ReceiptModalProps {
@@ -120,6 +125,8 @@ export function ReceiptModal({ receiptId: receiptRef, type = "booking", onClose 
       r.gstAmount > 0 ? `GST: ₹${r.gstAmount.toFixed(2)}` : null,
       r.discountAmount > 0 ? `Discount: -₹${r.discountAmount.toFixed(2)}` : null,
       `*Total: ₹${r.totalAmount.toFixed(2)}*`,
+      r.issuedCoupon ? `Issued Coupon: ${r.issuedCoupon.code}` : null,
+      r.issuedCoupon ? `Coupon Valid Till: ${new Date(r.issuedCoupon.validTo).toLocaleString()}` : null,
       ``,
       `*Payment:*`,
       ...r.paymentLines.map((pl) => `${METHOD_LABELS[pl.method] ?? pl.method}: ₹${pl.amount.toFixed(2)}`),
@@ -222,6 +229,16 @@ export function ReceiptModal({ receiptId: receiptRef, type = "booking", onClose 
                   <p className="text-gray-400 text-xs">{receipt.receiptNumber}</p>
                 </div>
               )}
+
+              {receipt.issuedCoupon ? (
+                <div className="border-t border-dashed border-gray-300 pt-3 space-y-1">
+                  <p className="text-gray-500 text-xs">Issued One-Time Coupon</p>
+                  <p className="font-semibold text-sm">{receipt.issuedCoupon.code}</p>
+                  <p className="text-gray-500">
+                    Valid till: {new Date(receipt.issuedCoupon.validTo).toLocaleString()}
+                  </p>
+                </div>
+              ) : null}
 
               <div className="text-center pt-3 text-gray-500">
                 <p>Cashier: {receipt.cashierName}</p>

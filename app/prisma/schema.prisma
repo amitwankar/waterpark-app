@@ -265,6 +265,14 @@ enum CostumeSize {
   KIDS_L // Kids Large  (10-12 yrs)
 }
 
+enum PackageItemType {
+  TICKET
+  RIDE
+  LOCKER
+  COSTUME
+  FOOD
+}
+
 // =============================================================================
 // BETTER AUTH — CORE TABLES
 // These four models match Better Auth's required schema exactly.
@@ -561,11 +569,66 @@ model TicketType {
   couponTicketTypes   CouponTicketType[]
   freeTicketCoupons   Coupon[]             @relation("CouponFreeTicketType")
   ride                Ride?                @relation(fields: [rideId], references: [id])
+  packageItems        SalesPackageItem[]   @relation("PackageTicketType")
 
   @@index([isActive, isDeleted])
   @@index([sortOrder])
   @@index([rideId])
   @@map("ticket_type")
+}
+
+model SalesPackage {
+  id          String    @id @default(cuid())
+  name        String
+  description String?   @db.Text
+  listedPrice Decimal   @map("listed_price") @db.Decimal(12, 2)
+  salePrice   Decimal   @map("sale_price") @db.Decimal(12, 2)
+  gstRate     Decimal   @default(18) @map("gst_rate") @db.Decimal(5, 2)
+  sortOrder   Int       @default(0) @map("sort_order")
+  isActive    Boolean   @default(true) @map("is_active")
+  isDeleted   Boolean   @default(false) @map("is_deleted")
+  deletedAt   DateTime? @map("deleted_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  items SalesPackageItem[]
+
+  @@index([isActive, isDeleted])
+  @@index([sortOrder])
+  @@map("sales_package")
+}
+
+model SalesPackageItem {
+  id             String          @id @default(cuid())
+  packageId      String          @map("package_id")
+  itemType       PackageItemType @map("item_type")
+  ticketTypeId   String?         @map("ticket_type_id")
+  rideId         String?         @map("ride_id")
+  lockerId       String?         @map("locker_id")
+  costumeItemId  String?         @map("costume_item_id")
+  foodItemId     String?         @map("food_item_id")
+  foodVariantId  String?         @map("food_variant_id")
+  quantity       Int             @default(1)
+  sortOrder      Int             @default(0) @map("sort_order")
+  createdAt      DateTime        @default(now()) @map("created_at")
+
+  package     SalesPackage     @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  ticketType  TicketType?      @relation("PackageTicketType", fields: [ticketTypeId], references: [id])
+  ride        Ride?            @relation("PackageRide", fields: [rideId], references: [id])
+  locker      Locker?          @relation("PackageLocker", fields: [lockerId], references: [id])
+  costumeItem CostumeItem?     @relation("PackageCostumeItem", fields: [costumeItemId], references: [id])
+  foodItem    FoodItem?        @relation("PackageFoodItem", fields: [foodItemId], references: [id])
+  foodVariant FoodItemVariant? @relation("PackageFoodVariant", fields: [foodVariantId], references: [id])
+
+  @@index([packageId])
+  @@index([itemType])
+  @@index([ticketTypeId])
+  @@index([rideId])
+  @@index([lockerId])
+  @@index([costumeItemId])
+  @@index([foodItemId])
+  @@index([foodVariantId])
+  @@map("sales_package_item")
 }
 
 // =============================================================================
@@ -818,6 +881,7 @@ model Ride {
   rideAccessLogs RideAccessLog[]
   workOrders     WorkOrder[]
   ticketTypes    TicketType[]
+  packageItems   SalesPackageItem[] @relation("PackageRide")
 
   @@index([zoneId])
   @@index([status])
@@ -1270,6 +1334,7 @@ model FoodItem {
   orderItems FoodOrderItem[]
   variants   FoodItemVariant[]
   modifierGroups FoodModifierGroup[]
+  packageItems SalesPackageItem[] @relation("PackageFoodItem")
 
   @@index([categoryId])
   @@index([isAvailable, isDeleted])
@@ -1333,6 +1398,7 @@ model FoodItemVariant {
 
   foodItem   FoodItem        @relation(fields: [foodItemId], references: [id], onDelete: Cascade)
   orderItems FoodOrderItem[]
+  packageItems SalesPackageItem[] @relation("PackageFoodVariant")
 
   @@index([foodItemId])
   @@index([isAvailable])
@@ -1447,6 +1513,7 @@ model Locker {
 
   zone        LockerZone         @relation(fields: [zoneId], references: [id])
   assignments LockerAssignment[]
+  packageItems SalesPackageItem[] @relation("PackageLocker")
 
   @@index([zoneId])
   @@index([status])
@@ -1526,6 +1593,7 @@ model CostumeItem {
 
   category CostumeCategory @relation(fields: [categoryId], references: [id])
   rentals  CostumeRental[]
+  packageItems SalesPackageItem[] @relation("PackageCostumeItem")
 
   @@index([categoryId])
   @@index([status])

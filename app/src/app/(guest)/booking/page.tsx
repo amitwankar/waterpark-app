@@ -63,6 +63,14 @@ interface CouponValidateResponse {
   discountAmount: number;
 }
 
+interface CouponOption {
+  id: string;
+  code: string;
+  title: string | null;
+  discountType: string;
+  discountValue: number;
+}
+
 interface ParkConfigLite {
   razorpayEnabled?: boolean;
   manualUpiEnabled?: boolean;
@@ -135,6 +143,7 @@ export default function BookingPage(): JSX.Element {
   const [couponError, setCouponError] = useState<string>("");
   const [couponDiscount, setCouponDiscount] = useState<number>(0);
   const [applyingCoupon, setApplyingCoupon] = useState<boolean>(false);
+  const [couponOptions, setCouponOptions] = useState<CouponOption[]>([]);
   const [participants, setParticipants] = useState<ParticipantDraft[]>([]);
   const [values, setValues] = useState<FormValues>({
     guestName: "",
@@ -189,6 +198,32 @@ export default function BookingPage(): JSX.Element {
         ...current,
         paymentMethod: nextMethods.includes(current.paymentMethod) ? current.paymentMethod : nextMethods[0]!,
       }));
+    })();
+  }, [session?.user]);
+
+  useEffect(() => {
+    if (!session?.user) return;
+    void (async () => {
+      const response = await fetch("/api/v1/public/offers", { method: "GET" });
+      const payload = (await response.json().catch(() => null)) as {
+        items?: Array<{
+          id: string;
+          code: string;
+          title: string | null;
+          discountType: string;
+          discountValue: number;
+        }>;
+      } | null;
+      if (!response.ok) return;
+      setCouponOptions(
+        (payload?.items ?? []).map((item) => ({
+          id: item.id,
+          code: item.code,
+          title: item.title,
+          discountType: item.discountType,
+          discountValue: Number(item.discountValue ?? 0),
+        })),
+      );
     })();
   }, [session?.user]);
 
@@ -484,6 +519,23 @@ export default function BookingPage(): JSX.Element {
           {!loadingTickets && step === 3 ? (
             <div className="animate-fade-in grid gap-5 lg:grid-cols-[1fr_360px]">
               <div className="space-y-4">
+                <Select
+                  label="Available Coupons"
+                  value={values.couponCode}
+                  onChange={(event) => {
+                    const couponCode = event.target.value;
+                    setValues((current) => ({ ...current, couponCode }));
+                    setCouponError("");
+                    setCouponDiscount(0);
+                  }}
+                  options={[
+                    { label: "Select coupon (optional)", value: "" },
+                    ...couponOptions.map((item) => ({
+                      label: `${item.code}${item.title ? ` · ${item.title}` : ""} (${item.discountType.replaceAll("_", " ")})`,
+                      value: item.code,
+                    })),
+                  ]}
+                />
                 <CouponInput
                   value={values.couponCode}
                   onChange={(couponCode) => {

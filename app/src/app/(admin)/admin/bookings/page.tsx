@@ -76,6 +76,13 @@ interface CreateBookingDraft {
   advancePercent: number;
   paymentMethod: "GATEWAY" | "MANUAL_UPI" | "CASH" | "CARD";
   paymentReference: string;
+  customDiscountType: "NONE" | "PERCENTAGE" | "AMOUNT";
+  customDiscountValue: number;
+  packageLines: Array<{ packageId: string; quantity: number }>;
+  foodLines: Array<{ foodItemId: string; foodVariantId?: string; quantity: number }>;
+  lockerLines: Array<{ lockerId: string; quantity: number }>;
+  costumeLines: Array<{ costumeItemId: string; quantity: number }>;
+  rideLines: Array<{ rideId: string; quantity: number }>;
 }
 
 type PaymentMethod = CreateBookingDraft["paymentMethod"];
@@ -94,9 +101,57 @@ interface CouponValidateResponse {
   discountAmount: number;
 }
 
+interface CouponOption {
+  id: string;
+  code: string;
+  title: string | null;
+  discountType: string;
+  discountValue: number;
+}
+
 interface ParkConfigLite {
   razorpayEnabled?: boolean;
   manualUpiEnabled?: boolean;
+}
+
+interface PackageOption {
+  id: string;
+  name: string;
+  salePrice: number;
+  gstRate: number;
+}
+
+interface FoodOption {
+  id: string;
+  foodItemId: string;
+  foodVariantId?: string;
+  name: string;
+  variantName?: string;
+  price: number;
+  gstRate: number;
+}
+
+interface LockerOption {
+  id: string;
+  number: string;
+  rate: number;
+  gstRate?: number;
+}
+
+interface CostumeOption {
+  id: string;
+  name: string;
+  categoryName: string;
+  rentalRate: number;
+  gstRate: number;
+  availableQuantity: number;
+}
+
+interface RideOption {
+  id: string;
+  name: string;
+  entryFee: number;
+  gstRate: number;
 }
 
 const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
@@ -126,6 +181,13 @@ const DEFAULT_CREATE_DRAFT: CreateBookingDraft = {
   advancePercent: 30,
   paymentMethod: "CASH",
   paymentReference: "",
+  customDiscountType: "NONE",
+  customDiscountValue: 0,
+  packageLines: [],
+  foodLines: [],
+  lockerLines: [],
+  costumeLines: [],
+  rideLines: [],
 };
 
 function getApiValidationMessage(errors: unknown): string | undefined {
@@ -197,7 +259,17 @@ export default function AdminBookingsPage(): JSX.Element {
     totalPages: 1,
   });
   const [ticketTypes, setTicketTypes] = useState<TicketType[]>([]);
+  const [packageOptions, setPackageOptions] = useState<PackageOption[]>([]);
+  const [foodOptions, setFoodOptions] = useState<FoodOption[]>([]);
+  const [lockerOptions, setLockerOptions] = useState<LockerOption[]>([]);
+  const [costumeOptions, setCostumeOptions] = useState<CostumeOption[]>([]);
+  const [rideOptions, setRideOptions] = useState<RideOption[]>([]);
   const [dateRange, setDateRange] = useState<{ min: string; max: string }>({ min: "", max: "" });
+  const [packagePicker, setPackagePicker] = useState<{ packageId: string; quantity: string }>({ packageId: "", quantity: "1" });
+  const [foodPicker, setFoodPicker] = useState<{ id: string; quantity: string }>({ id: "", quantity: "1" });
+  const [lockerPicker, setLockerPicker] = useState<{ lockerId: string; quantity: string }>({ lockerId: "", quantity: "1" });
+  const [costumePicker, setCostumePicker] = useState<{ costumeItemId: string; quantity: string }>({ costumeItemId: "", quantity: "1" });
+  const [ridePicker, setRidePicker] = useState<{ rideId: string; quantity: string }>({ rideId: "", quantity: "1" });
 
   const [addOpen, setAddOpen] = useState(false);
   const [addStep, setAddStep] = useState<number>(1);
@@ -209,6 +281,7 @@ export default function AdminBookingsPage(): JSX.Element {
   const [couponError, setCouponError] = useState<string>("");
   const [couponDiscount, setCouponDiscount] = useState<number>(0);
   const [applyingCoupon, setApplyingCoupon] = useState<boolean>(false);
+  const [couponOptions, setCouponOptions] = useState<CouponOption[]>([]);
 
   const [editing, setEditing] = useState<BookingItem | null>(null);
   const [editDraft, setEditDraft] = useState<EditBookingDraft>({
@@ -262,8 +335,71 @@ export default function AdminBookingsPage(): JSX.Element {
       unitPrice: ticketMap.get(line.ticketTypeId)?.price ?? 0,
     }));
     const gstRate = createDraft.ticketLines.length > 0 ? (ticketMap.get(createDraft.ticketLines[0]!.ticketTypeId)?.gstRate ?? 18) : 18;
-    return calculatePricing({ lines, gstRate, discountAmount: couponDiscount });
-  }, [createDraft.ticketLines, ticketMap, couponDiscount]);
+    const ticketPricing = calculatePricing({ lines, gstRate, discountAmount: couponDiscount });
+
+    const packageAmount = createDraft.packageLines.reduce((sum, line) => {
+      const selected = packageOptions.find((item) => item.id === line.packageId);
+      if (!selected) return sum;
+      return sum + selected.salePrice * line.quantity * (1 + selected.gstRate / 100);
+    }, 0);
+    const foodAmount = createDraft.foodLines.reduce((sum, line) => {
+      const optionId = line.foodVariantId ? `${line.foodItemId}__${line.foodVariantId}` : line.foodItemId;
+      const selected = foodOptions.find((item) => item.id === optionId);
+      if (!selected) return sum;
+      return sum + selected.price * line.quantity * (1 + selected.gstRate / 100);
+    }, 0);
+    const lockerAmount = createDraft.lockerLines.reduce((sum, line) => {
+      const selected = lockerOptions.find((item) => item.id === line.lockerId);
+      if (!selected) return sum;
+      return sum + selected.rate * line.quantity * (1 + Number(selected.gstRate ?? 18) / 100);
+    }, 0);
+    const costumeAmount = createDraft.costumeLines.reduce((sum, line) => {
+      const selected = costumeOptions.find((item) => item.id === line.costumeItemId);
+      if (!selected) return sum;
+      return sum + selected.rentalRate * line.quantity * (1 + (selected.gstRate > 0 ? selected.gstRate : 18) / 100);
+    }, 0);
+    const rideAmount = createDraft.rideLines.reduce((sum, line) => {
+      const selected = rideOptions.find((item) => item.id === line.rideId);
+      if (!selected) return sum;
+      return sum + selected.entryFee * line.quantity * (1 + selected.gstRate / 100);
+    }, 0);
+    const addOnAmount = packageAmount + foodAmount + lockerAmount + costumeAmount + rideAmount;
+    const grossTotal = ticketPricing.totalAmount + addOnAmount;
+
+    let customDiscountAmount = 0;
+    if (createDraft.customDiscountType === "PERCENTAGE") {
+      customDiscountAmount = (grossTotal * createDraft.customDiscountValue) / 100;
+    } else if (createDraft.customDiscountType === "AMOUNT") {
+      customDiscountAmount = createDraft.customDiscountValue;
+    }
+    customDiscountAmount = Math.min(Math.max(0, customDiscountAmount), grossTotal);
+    const totalAmount = Math.max(0, grossTotal - customDiscountAmount);
+
+    return {
+      subtotal: ticketPricing.subtotal + addOnAmount,
+      gstAmount: ticketPricing.gstAmount,
+      discountAmount: ticketPricing.discountAmount + customDiscountAmount,
+      totalAmount,
+      addOnAmount,
+      customDiscountAmount,
+    };
+  }, [
+    createDraft.ticketLines,
+    createDraft.packageLines,
+    createDraft.foodLines,
+    createDraft.lockerLines,
+    createDraft.costumeLines,
+    createDraft.rideLines,
+    createDraft.customDiscountType,
+    createDraft.customDiscountValue,
+    ticketMap,
+    couponDiscount,
+    packageOptions,
+    foodOptions,
+    lockerOptions,
+    costumeOptions,
+    rideOptions,
+  ]);
 
   const paymentBreakdown = useMemo(() => {
     if (createDraft.paymentPlan === "ADVANCE") {
@@ -310,6 +446,128 @@ export default function AdminBookingsPage(): JSX.Element {
     }
   }
 
+  async function loadBookingAddOnOptions(): Promise<void> {
+    const [packageRes, foodRes, lockerRes, costumeRes, rideRes, couponRes] = await Promise.all([
+      fetch("/api/v1/packages?activeOnly=true"),
+      fetch("/api/v1/food/items?available=true"),
+      fetch("/api/v1/lockers?status=AVAILABLE"),
+      fetch("/api/v1/costumes/items?availableOnly=true"),
+      fetch("/api/v1/rides"),
+      fetch("/api/v1/coupons?active=1&page=1&pageSize=100"),
+    ]);
+
+    const packagePayload = (await packageRes.json().catch(() => [])) as Array<{ id: string; name: string; salePrice: number; gstRate: number }>;
+    if (packageRes.ok) {
+      setPackageOptions(
+        packagePayload.map((item) => ({
+          id: item.id,
+          name: item.name,
+          salePrice: Number(item.salePrice),
+          gstRate: Number(item.gstRate ?? 18),
+        })),
+      );
+    }
+
+    const foodPayload = (await foodRes.json().catch(() => [])) as Array<{
+      id: string;
+      name: string;
+      price: number;
+      gstRate?: number;
+      variants?: Array<{ id: string; name: string; price: number; isAvailable?: boolean }>;
+    }>;
+    if (foodRes.ok) {
+      const options: FoodOption[] = [];
+      for (const item of foodPayload) {
+        options.push({
+          id: item.id,
+          foodItemId: item.id,
+          name: item.name,
+          price: Number(item.price),
+          gstRate: Number(item.gstRate ?? 0),
+        });
+        for (const variant of item.variants ?? []) {
+          if (variant.isAvailable === false) continue;
+          options.push({
+            id: `${item.id}__${variant.id}`,
+            foodItemId: item.id,
+            foodVariantId: variant.id,
+            name: item.name,
+            variantName: variant.name,
+            price: Number(variant.price),
+            gstRate: Number(item.gstRate ?? 0),
+          });
+        }
+      }
+      setFoodOptions(options);
+    }
+
+    const lockerPayload = (await lockerRes.json().catch(() => [])) as Array<{ id: string; number: string; rate?: number; gstRate?: number }>;
+    if (lockerRes.ok) {
+      setLockerOptions(
+        lockerPayload.map((item) => ({
+          id: item.id,
+          number: item.number,
+          rate: Number(item.rate ?? 0),
+          gstRate: Number(item.gstRate ?? 18),
+        })),
+      );
+    }
+
+    const costumePayload = (await costumeRes.json().catch(() => [])) as Array<{
+      id: string;
+      name: string;
+      rentalRate: number;
+      gstRate?: number;
+      availableQuantity?: number;
+      category?: { name?: string };
+    }>;
+    if (costumeRes.ok) {
+      setCostumeOptions(
+        costumePayload.map((item) => ({
+          id: item.id,
+          name: item.name,
+          categoryName: item.category?.name ?? "Costume",
+          rentalRate: Number(item.rentalRate ?? 0),
+          gstRate: Number(item.gstRate ?? 0),
+          availableQuantity: Number(item.availableQuantity ?? 0),
+        })),
+      );
+    }
+
+    const ridePayload = (await rideRes.json().catch(() => [])) as Array<{ id: string; name: string; entryFee?: number; gstRate?: number; status?: string }>;
+    if (rideRes.ok) {
+      setRideOptions(
+        ridePayload
+          .filter((item) => item.status === "ACTIVE")
+          .map((item) => ({
+            id: item.id,
+            name: item.name,
+            entryFee: Number(item.entryFee ?? 0),
+            gstRate: Number(item.gstRate ?? 18),
+          })),
+      );
+    }
+
+    const couponPayload = (await couponRes.json().catch(() => null)) as { items?: Array<{
+      id: string;
+      code: string;
+      title: string | null;
+      discountType: string;
+      discountValue: number;
+    }> } | null;
+    if (couponRes.ok) {
+      setCouponOptions(
+        (couponPayload?.items ?? []).map((item) => ({
+          id: item.id,
+          code: item.code,
+          title: item.title,
+          discountType: item.discountType,
+          discountValue: Number(item.discountValue ?? 0),
+        })),
+      );
+    }
+  }
+
   useEffect(() => {
     void loadBookings();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -317,6 +575,7 @@ export default function AdminBookingsPage(): JSX.Element {
 
   useEffect(() => {
     void loadTicketTypes();
+    void loadBookingAddOnOptions();
   }, []);
 
   function validateAddStep(nextStep: number): boolean {
@@ -359,6 +618,135 @@ export default function AdminBookingsPage(): JSX.Element {
 
     setFormErrors({});
     return true;
+  }
+
+  function addPackageLine(): void {
+    if (!packagePicker.packageId) return;
+    const quantity = Math.max(1, Number(packagePicker.quantity || "1"));
+    setCreateDraft((current) => ({
+      ...current,
+      packageLines: [...current.packageLines, { packageId: packagePicker.packageId, quantity }],
+    }));
+  }
+
+  function addFoodLine(): void {
+    if (!foodPicker.id) return;
+    const selected = foodOptions.find((item) => item.id === foodPicker.id);
+    if (!selected) return;
+    const quantity = Math.max(1, Number(foodPicker.quantity || "1"));
+    setCreateDraft((current) => ({
+      ...current,
+      foodLines: [
+        ...current.foodLines,
+        { foodItemId: selected.foodItemId, foodVariantId: selected.foodVariantId, quantity },
+      ],
+    }));
+  }
+
+  function addLockerLine(): void {
+    if (!lockerPicker.lockerId) return;
+    const quantity = Math.max(1, Number(lockerPicker.quantity || "1"));
+    setCreateDraft((current) => ({
+      ...current,
+      lockerLines: [...current.lockerLines, { lockerId: lockerPicker.lockerId, quantity }],
+    }));
+  }
+
+  function addCostumeLine(): void {
+    if (!costumePicker.costumeItemId) return;
+    const quantity = Math.max(1, Number(costumePicker.quantity || "1"));
+    setCreateDraft((current) => ({
+      ...current,
+      costumeLines: [...current.costumeLines, { costumeItemId: costumePicker.costumeItemId, quantity }],
+    }));
+  }
+
+  function addRideLine(): void {
+    if (!ridePicker.rideId) return;
+    const quantity = Math.max(1, Number(ridePicker.quantity || "1"));
+    setCreateDraft((current) => ({
+      ...current,
+      rideLines: [...current.rideLines, { rideId: ridePicker.rideId, quantity }],
+    }));
+  }
+
+  function updatePackageLine(index: number, patch: Partial<{ packageId: string; quantity: number }>): void {
+    setCreateDraft((current) => ({
+      ...current,
+      packageLines: current.packageLines.map((line, rowIndex) =>
+        rowIndex === index
+          ? {
+              packageId: patch.packageId ?? line.packageId,
+              quantity: patch.quantity ?? line.quantity,
+            }
+          : line,
+      ),
+    }));
+  }
+
+  function updateFoodLine(index: number, nextOptionId: string | null, nextQuantity?: number): void {
+    setCreateDraft((current) => ({
+      ...current,
+      foodLines: current.foodLines.map((line, rowIndex) => {
+        if (rowIndex !== index) return line;
+        if (nextOptionId !== null) {
+          const selected = foodOptions.find((item) => item.id === nextOptionId);
+          if (selected) {
+            return {
+              foodItemId: selected.foodItemId,
+              foodVariantId: selected.foodVariantId,
+              quantity: nextQuantity ?? line.quantity,
+            };
+          }
+        }
+        return {
+          ...line,
+          quantity: nextQuantity ?? line.quantity,
+        };
+      }),
+    }));
+  }
+
+  function updateLockerLine(index: number, patch: Partial<{ lockerId: string; quantity: number }>): void {
+    setCreateDraft((current) => ({
+      ...current,
+      lockerLines: current.lockerLines.map((line, rowIndex) =>
+        rowIndex === index
+          ? {
+              lockerId: patch.lockerId ?? line.lockerId,
+              quantity: patch.quantity ?? line.quantity,
+            }
+          : line,
+      ),
+    }));
+  }
+
+  function updateCostumeLine(index: number, patch: Partial<{ costumeItemId: string; quantity: number }>): void {
+    setCreateDraft((current) => ({
+      ...current,
+      costumeLines: current.costumeLines.map((line, rowIndex) =>
+        rowIndex === index
+          ? {
+              costumeItemId: patch.costumeItemId ?? line.costumeItemId,
+              quantity: patch.quantity ?? line.quantity,
+            }
+          : line,
+      ),
+    }));
+  }
+
+  function updateRideLine(index: number, patch: Partial<{ rideId: string; quantity: number }>): void {
+    setCreateDraft((current) => ({
+      ...current,
+      rideLines: current.rideLines.map((line, rowIndex) =>
+        rowIndex === index
+          ? {
+              rideId: patch.rideId ?? line.rideId,
+              quantity: patch.quantity ?? line.quantity,
+            }
+          : line,
+      ),
+    }));
   }
 
   const columns: Array<DataTableColumn<BookingItem>> = [
@@ -540,6 +928,13 @@ export default function AdminBookingsPage(): JSX.Element {
           advancePercent: createDraft.paymentPlan === "ADVANCE" ? createDraft.advancePercent : undefined,
           paymentMethod: createDraft.paymentMethod,
           paymentReference: createDraft.paymentReference || undefined,
+          customDiscountType: createDraft.customDiscountType,
+          customDiscountValue: createDraft.customDiscountType === "NONE" ? 0 : createDraft.customDiscountValue,
+          packageLines: createDraft.packageLines,
+          foodLines: createDraft.foodLines,
+          lockerLines: createDraft.lockerLines,
+          costumeLines: createDraft.costumeLines,
+          rideLines: createDraft.rideLines,
           participants: participants.map((participant) => ({
             name: participant.name,
             gender: participant.gender,
@@ -796,6 +1191,23 @@ export default function AdminBookingsPage(): JSX.Element {
           {addStep === 3 ? (
             <div className="grid gap-5 lg:grid-cols-[1fr_320px]">
               <div className="space-y-4">
+                <Select
+                  label="Available Coupons"
+                  value={createDraft.couponCode}
+                  onChange={(event) => {
+                    const couponCode = event.target.value;
+                    setCreateDraft((current) => ({ ...current, couponCode }));
+                    setCouponError("");
+                    setCouponDiscount(0);
+                  }}
+                  options={[
+                    { label: "Select coupon (optional)", value: "" },
+                    ...couponOptions.map((item) => ({
+                      label: `${item.code}${item.title ? ` · ${item.title}` : ""} (${item.discountType.replaceAll("_", " ")})`,
+                      value: item.code,
+                    })),
+                  ]}
+                />
                 <CouponInput
                   value={createDraft.couponCode}
                   onChange={(couponCode) => {
@@ -807,6 +1219,323 @@ export default function AdminBookingsPage(): JSX.Element {
                   loading={applyingCoupon}
                   error={couponError}
                 />
+
+                <div className="rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4 space-y-4">
+                  <h2 className="text-sm font-semibold text-[var(--color-text)]">Custom Discount</h2>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <Select
+                      label="Discount Type"
+                      value={createDraft.customDiscountType}
+                      onChange={(event) =>
+                        setCreateDraft((current) => ({
+                          ...current,
+                          customDiscountType: (event.target.value as "NONE" | "PERCENTAGE" | "AMOUNT") ?? "NONE",
+                        }))
+                      }
+                      options={[
+                        { label: "No Custom Discount", value: "NONE" },
+                        { label: "Percentage", value: "PERCENTAGE" },
+                        { label: "Fixed Amount", value: "AMOUNT" },
+                      ]}
+                    />
+                    <Input
+                      label={createDraft.customDiscountType === "PERCENTAGE" ? "Discount (%)" : "Discount Amount (₹)"}
+                      type="number"
+                      min={0}
+                      max={createDraft.customDiscountType === "PERCENTAGE" ? 100 : undefined}
+                      value={String(createDraft.customDiscountValue)}
+                      onChange={(event) =>
+                        setCreateDraft((current) => ({
+                          ...current,
+                          customDiscountValue: Math.max(0, Number(event.target.value || 0)),
+                        }))
+                      }
+                      disabled={createDraft.customDiscountType === "NONE"}
+                    />
+                  </div>
+                </div>
+
+                <div className="rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4 space-y-4">
+                  <h2 className="text-sm font-semibold text-[var(--color-text)]">Packages & Add-ons</h2>
+                  <p className="text-xs text-[var(--color-text-muted)]">
+                    For locker and costume, booking stores requested quantity. Final unit allocation happens at ticket POS when this booking is loaded.
+                  </p>
+
+                  <div className="grid gap-3 md:grid-cols-[1fr_120px_auto]">
+                    <Select
+                      label="Package"
+                      value={packagePicker.packageId}
+                      onChange={(event) => setPackagePicker((current) => ({ ...current, packageId: event.target.value }))}
+                      options={[{ label: "Select package", value: "" }, ...packageOptions.map((item) => ({ label: `${item.name} (₹${item.salePrice})`, value: item.id }))]}
+                    />
+                    <Input
+                      label="Qty"
+                      type="number"
+                      min={1}
+                      value={packagePicker.quantity}
+                      onChange={(event) => setPackagePicker((current) => ({ ...current, quantity: event.target.value }))}
+                    />
+                    <div className="self-end">
+                      <Button variant="outline" onClick={addPackageLine}>Add Package</Button>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3 md:grid-cols-[1fr_120px_auto]">
+                    <Select
+                      label="Food"
+                      value={foodPicker.id}
+                      onChange={(event) => setFoodPicker((current) => ({ ...current, id: event.target.value }))}
+                      options={[{ label: "Select food", value: "" }, ...foodOptions.map((item) => ({ label: `${item.variantName ? `${item.name} · ${item.variantName}` : item.name} (₹${item.price})`, value: item.id }))]}
+                    />
+                    <Input
+                      label="Qty"
+                      type="number"
+                      min={1}
+                      value={foodPicker.quantity}
+                      onChange={(event) => setFoodPicker((current) => ({ ...current, quantity: event.target.value }))}
+                    />
+                    <div className="self-end">
+                      <Button variant="outline" onClick={addFoodLine}>Add Food</Button>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3 md:grid-cols-[1fr_120px_auto]">
+                    <Select
+                      label="Locker"
+                      value={lockerPicker.lockerId}
+                      onChange={(event) => setLockerPicker((current) => ({ ...current, lockerId: event.target.value }))}
+                      options={[{ label: "Select locker", value: "" }, ...lockerOptions.map((item) => ({ label: `${item.number} (₹${item.rate})`, value: item.id }))]}
+                    />
+                    <Input
+                      label="Qty"
+                      type="number"
+                      min={1}
+                      value={lockerPicker.quantity}
+                      onChange={(event) => setLockerPicker((current) => ({ ...current, quantity: event.target.value }))}
+                    />
+                    <div className="self-end">
+                      <Button variant="outline" onClick={addLockerLine}>Add Locker</Button>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3 md:grid-cols-[1fr_120px_auto]">
+                    <Select
+                      label="Costume"
+                      value={costumePicker.costumeItemId}
+                      onChange={(event) => setCostumePicker((current) => ({ ...current, costumeItemId: event.target.value }))}
+                      options={[{ label: "Select costume", value: "" }, ...costumeOptions.map((item) => ({ label: `${item.name} · ${item.categoryName} (₹${item.rentalRate})`, value: item.id }))]}
+                    />
+                    <Input
+                      label="Qty"
+                      type="number"
+                      min={1}
+                      value={costumePicker.quantity}
+                      onChange={(event) => setCostumePicker((current) => ({ ...current, quantity: event.target.value }))}
+                    />
+                    <div className="self-end">
+                      <Button variant="outline" onClick={addCostumeLine}>Add Costume</Button>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3 md:grid-cols-[1fr_120px_auto]">
+                    <Select
+                      label="Ride"
+                      value={ridePicker.rideId}
+                      onChange={(event) => setRidePicker((current) => ({ ...current, rideId: event.target.value }))}
+                      options={[{ label: "Select ride", value: "" }, ...rideOptions.map((item) => ({ label: `${item.name} (₹${item.entryFee})`, value: item.id }))]}
+                    />
+                    <Input
+                      label="Qty"
+                      type="number"
+                      min={1}
+                      value={ridePicker.quantity}
+                      onChange={(event) => setRidePicker((current) => ({ ...current, quantity: event.target.value }))}
+                    />
+                    <div className="self-end">
+                      <Button variant="outline" onClick={addRideLine}>Add Ride</Button>
+                    </div>
+                  </div>
+
+                  <div className="rounded-[var(--radius-md)] border border-[var(--color-border)] p-3 space-y-3">
+                    <p className="text-xs font-medium text-[var(--color-text-muted)]">Selected Add-on Lines</p>
+
+                    {createDraft.packageLines.length > 0 ? (
+                      <div className="space-y-2">
+                        <p className="text-xs font-semibold text-[var(--color-text)]">Packages</p>
+                        {createDraft.packageLines.map((line, index) => (
+                          <div key={`pkg-${index}`} className="grid gap-2 md:grid-cols-[1fr_90px_auto]">
+                            <Select
+                              value={line.packageId}
+                              onChange={(event) => updatePackageLine(index, { packageId: event.target.value })}
+                              options={packageOptions.map((item) => ({ label: `${item.name} (₹${item.salePrice})`, value: item.id }))}
+                            />
+                            <Input
+                              type="number"
+                              min={1}
+                              value={String(line.quantity)}
+                              onChange={(event) => updatePackageLine(index, { quantity: Math.max(1, Number(event.target.value || 1)) })}
+                            />
+                            <Button
+                              variant="ghost"
+                              className="text-red-600"
+                              onClick={() =>
+                                setCreateDraft((current) => ({
+                                  ...current,
+                                  packageLines: current.packageLines.filter((_, rowIndex) => rowIndex !== index),
+                                }))
+                              }
+                            >
+                              Remove
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+
+                    {createDraft.foodLines.length > 0 ? (
+                      <div className="space-y-2">
+                        <p className="text-xs font-semibold text-[var(--color-text)]">Food</p>
+                        {createDraft.foodLines.map((line, index) => (
+                          <div key={`food-${index}`} className="grid gap-2 md:grid-cols-[1fr_90px_auto]">
+                            <Select
+                              value={line.foodVariantId ? `${line.foodItemId}__${line.foodVariantId}` : line.foodItemId}
+                              onChange={(event) => updateFoodLine(index, event.target.value)}
+                              options={foodOptions.map((item) => ({
+                                label: `${item.variantName ? `${item.name} · ${item.variantName}` : item.name} (₹${item.price})`,
+                                value: item.id,
+                              }))}
+                            />
+                            <Input
+                              type="number"
+                              min={1}
+                              value={String(line.quantity)}
+                              onChange={(event) => updateFoodLine(index, null, Math.max(1, Number(event.target.value || 1)))}
+                            />
+                            <Button
+                              variant="ghost"
+                              className="text-red-600"
+                              onClick={() =>
+                                setCreateDraft((current) => ({
+                                  ...current,
+                                  foodLines: current.foodLines.filter((_, rowIndex) => rowIndex !== index),
+                                }))
+                              }
+                            >
+                              Remove
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+
+                    {createDraft.lockerLines.length > 0 ? (
+                      <div className="space-y-2">
+                        <p className="text-xs font-semibold text-[var(--color-text)]">Locker</p>
+                        {createDraft.lockerLines.map((line, index) => (
+                          <div key={`locker-${index}`} className="grid gap-2 md:grid-cols-[1fr_90px_auto]">
+                            <Select
+                              value={line.lockerId}
+                              onChange={(event) => updateLockerLine(index, { lockerId: event.target.value })}
+                              options={lockerOptions.map((item) => ({ label: `${item.number} (₹${item.rate})`, value: item.id }))}
+                            />
+                            <Input
+                              type="number"
+                              min={1}
+                              value={String(line.quantity)}
+                              onChange={(event) => updateLockerLine(index, { quantity: Math.max(1, Number(event.target.value || 1)) })}
+                            />
+                            <Button
+                              variant="ghost"
+                              className="text-red-600"
+                              onClick={() =>
+                                setCreateDraft((current) => ({
+                                  ...current,
+                                  lockerLines: current.lockerLines.filter((_, rowIndex) => rowIndex !== index),
+                                }))
+                              }
+                            >
+                              Remove
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+
+                    {createDraft.costumeLines.length > 0 ? (
+                      <div className="space-y-2">
+                        <p className="text-xs font-semibold text-[var(--color-text)]">Costume</p>
+                        {createDraft.costumeLines.map((line, index) => (
+                          <div key={`costume-${index}`} className="grid gap-2 md:grid-cols-[1fr_90px_auto]">
+                            <Select
+                              value={line.costumeItemId}
+                              onChange={(event) => updateCostumeLine(index, { costumeItemId: event.target.value })}
+                              options={costumeOptions.map((item) => ({ label: `${item.name} · ${item.categoryName} (₹${item.rentalRate})`, value: item.id }))}
+                            />
+                            <Input
+                              type="number"
+                              min={1}
+                              value={String(line.quantity)}
+                              onChange={(event) => updateCostumeLine(index, { quantity: Math.max(1, Number(event.target.value || 1)) })}
+                            />
+                            <Button
+                              variant="ghost"
+                              className="text-red-600"
+                              onClick={() =>
+                                setCreateDraft((current) => ({
+                                  ...current,
+                                  costumeLines: current.costumeLines.filter((_, rowIndex) => rowIndex !== index),
+                                }))
+                              }
+                            >
+                              Remove
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+
+                    {createDraft.rideLines.length > 0 ? (
+                      <div className="space-y-2">
+                        <p className="text-xs font-semibold text-[var(--color-text)]">Ride</p>
+                        {createDraft.rideLines.map((line, index) => (
+                          <div key={`ride-${index}`} className="grid gap-2 md:grid-cols-[1fr_90px_auto]">
+                            <Select
+                              value={line.rideId}
+                              onChange={(event) => updateRideLine(index, { rideId: event.target.value })}
+                              options={rideOptions.map((item) => ({ label: `${item.name} (₹${item.entryFee})`, value: item.id }))}
+                            />
+                            <Input
+                              type="number"
+                              min={1}
+                              value={String(line.quantity)}
+                              onChange={(event) => updateRideLine(index, { quantity: Math.max(1, Number(event.target.value || 1)) })}
+                            />
+                            <Button
+                              variant="ghost"
+                              className="text-red-600"
+                              onClick={() =>
+                                setCreateDraft((current) => ({
+                                  ...current,
+                                  rideLines: current.rideLines.filter((_, rowIndex) => rowIndex !== index),
+                                }))
+                              }
+                            >
+                              Remove
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+
+                    {createDraft.packageLines.length === 0 &&
+                    createDraft.foodLines.length === 0 &&
+                    createDraft.lockerLines.length === 0 &&
+                    createDraft.costumeLines.length === 0 &&
+                    createDraft.rideLines.length === 0 ? (
+                      <p className="text-xs text-[var(--color-text-muted)]">No add-on lines selected yet.</p>
+                    ) : null}
+                  </div>
+                </div>
 
                 <div className="rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
                   <h2 className="text-sm font-semibold text-[var(--color-text)]">Payment Plan</h2>
@@ -890,6 +1619,8 @@ export default function AdminBookingsPage(): JSX.Element {
                     <p>Payment Plan: {createDraft.paymentPlan === "ADVANCE" ? `Advance ${createDraft.advancePercent}%` : "Full Payment"}</p>
                     <p>Payment Method: {createDraft.paymentMethod}</p>
                     <p>Transaction Ref: {createDraft.paymentReference || "N/A"}</p>
+                    <p>Packages/Add-ons: {createDraft.packageLines.length + createDraft.foodLines.length + createDraft.lockerLines.length + createDraft.costumeLines.length + createDraft.rideLines.length}</p>
+                    <p>Custom Discount: {createDraft.customDiscountType === "NONE" ? "None" : createDraft.customDiscountType === "PERCENTAGE" ? `${createDraft.customDiscountValue}%` : formatCurrency(createDraft.customDiscountValue)}</p>
                     <p>Pay Now: {formatCurrency(paymentBreakdown.payNow)}</p>
                     <p>Balance Due: {formatCurrency(paymentBreakdown.balanceDue)}</p>
                   </div>

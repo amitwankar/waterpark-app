@@ -22,6 +22,14 @@ type CouponItem = {
   isActive: boolean;
   validFrom: string;
   validTo: string;
+  couponScope?: {
+    ticket: boolean;
+    food: boolean;
+    locker: boolean;
+    costume: boolean;
+    ride: boolean;
+    package: boolean;
+  };
 };
 
 type CouponForm = {
@@ -37,6 +45,14 @@ type CouponForm = {
   validTo: string;
   isPublicOffer: boolean;
   isActive: boolean;
+  couponScope: {
+    ticket: boolean;
+    food: boolean;
+    locker: boolean;
+    costume: boolean;
+    ride: boolean;
+    package: boolean;
+  };
 };
 
 const discountOptions = [
@@ -62,6 +78,14 @@ const initialForm: CouponForm = {
   validTo: "",
   isPublicOffer: true,
   isActive: true,
+  couponScope: {
+    ticket: true,
+    food: true,
+    locker: true,
+    costume: true,
+    ride: true,
+    package: true,
+  },
 };
 
 function toInputDateTime(value: string | null | undefined): string {
@@ -126,6 +150,14 @@ export default function CouponsAdminPage(): JSX.Element {
       validTo: toInputDateTime(item.validTo),
       isPublicOffer: true,
       isActive: item.isActive,
+      couponScope: item.couponScope ?? {
+        ticket: true,
+        food: true,
+        locker: true,
+        costume: true,
+        ride: true,
+        package: true,
+      },
     });
     setError(null);
     setOpen(true);
@@ -147,6 +179,7 @@ export default function CouponsAdminPage(): JSX.Element {
       validTo: new Date(form.validTo).toISOString(),
       isPublicOffer: form.isPublicOffer,
       isActive: form.isActive,
+      couponScope: form.couponScope,
     };
 
     const response = await fetch(editingId ? `/api/v1/coupons/${editingId}` : "/api/v1/coupons", {
@@ -166,6 +199,16 @@ export default function CouponsAdminPage(): JSX.Element {
     setSaving(false);
     resetForm();
     await loadCoupons();
+  }
+
+  function toggleScope(key: keyof CouponForm["couponScope"]): void {
+    setForm((prev) => ({
+      ...prev,
+      couponScope: {
+        ...prev.couponScope,
+        [key]: !prev.couponScope[key],
+      },
+    }));
   }
 
   async function deleteCoupon(id: string): Promise<void> {
@@ -337,6 +380,31 @@ export default function CouponsAdminPage(): JSX.Element {
               { value: "0", label: "Inactive" },
             ]}
           />
+          <div className="md:col-span-2 rounded-[var(--radius-md)] border border-[var(--color-border)] p-3">
+            <p className="mb-2 text-sm font-medium text-[var(--color-text)]">Coupon Scope Matrix</p>
+            <p className="mb-3 text-xs text-[var(--color-text-muted)]">Coupon will apply only if selected cart types are enabled below.</p>
+            <div className="grid gap-2 sm:grid-cols-2 md:grid-cols-3">
+              {(
+                [
+                  ["ticket", "Ticket"],
+                  ["food", "Food"],
+                  ["locker", "Locker"],
+                  ["costume", "Costume"],
+                  ["ride", "Ride"],
+                  ["package", "Package"],
+                ] as const
+              ).map(([key, label]) => (
+                <label key={key} className="inline-flex items-center gap-2 rounded border border-[var(--color-border)] px-2 py-1.5 text-sm text-[var(--color-text)]">
+                  <input
+                    type="checkbox"
+                    checked={form.couponScope[key]}
+                    onChange={() => toggleScope(key)}
+                  />
+                  <span>{label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
           <div className="md:col-span-2">
             <label className="mb-1.5 block text-sm font-medium text-[var(--color-text)]">Description</label>
             <textarea

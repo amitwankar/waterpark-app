@@ -14,6 +14,16 @@ interface BookingResult {
   paid: number;
   balance: number;
   tickets: { ticketTypeId: string; name: string; quantity: number; unitPrice: number; gstRate: number }[];
+  posPreload?: {
+    packageLines?: Array<{ packageId: string; quantity: number }>;
+    foodLines?: Array<{ foodItemId: string; foodVariantId?: string; quantity: number }>;
+    lockerLines?: Array<{ lockerId: string; quantity: number }>;
+    costumeLines?: Array<{ costumeItemId: string; quantity: number }>;
+    rideLines?: Array<{ rideId: string; quantity: number }>;
+    customDiscountType?: "NONE" | "PERCENTAGE" | "AMOUNT";
+    customDiscountValue?: number;
+    customDiscountAmount?: number;
+  } | null;
 }
 
 interface BookingLookupProps {

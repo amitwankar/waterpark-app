@@ -22,6 +22,7 @@ import {
   Shirt,
   MonitorSmartphone,
   ScanLine,
+  Package,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/Badge";
@@ -70,6 +71,7 @@ function getGroups(): SidebarGroup[] {
         { href: "/admin/bookings", label: "Bookings", icon: ClipboardList },
         { href: "/admin/bookings/pos", label: "POS Bookings", icon: ClipboardList },
         { href: "/admin/tickets", label: "Ticket Types", icon: Ticket },
+        { href: "/admin/packages", label: "Packages", icon: Package },
         { href: "/admin/coupons", label: "Coupons", icon: Percent },
       ],
     },

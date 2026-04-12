@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { CouponAppliesTo, CouponDiscountType, CouponTarget, GuestTier, WeekDay } from "@prisma/client";
 import { z } from "zod";
 
+import { encodeCouponScopeMatrix, resolveCouponScopeMatrix } from "@/lib/coupon-scope";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/session";
 
@@ -33,6 +34,16 @@ const createSchema = z
     target: z.nativeEnum(CouponTarget).default(CouponTarget.ALL),
     allowedTiers: z.array(z.nativeEnum(GuestTier)).optional(),
     appliesTo: z.nativeEnum(CouponAppliesTo).default(CouponAppliesTo.ALL_TICKETS),
+    couponScope: z
+      .object({
+        ticket: z.boolean().optional(),
+        food: z.boolean().optional(),
+        locker: z.boolean().optional(),
+        costume: z.boolean().optional(),
+        ride: z.boolean().optional(),
+        package: z.boolean().optional(),
+      })
+      .optional(),
     ticketTypeIds: z.array(z.string().cuid()).optional(),
     buyXQty: z.coerce.number().int().min(1).max(50).optional(),
     buyYQty: z.coerce.number().int().min(1).max(50).optional(),
@@ -93,6 +104,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       maxDiscountCap: item.maxDiscountCap ? Number(item.maxDiscountCap) : null,
       flatPerTicketAmount: item.flatPerTicketAmount ? Number(item.flatPerTicketAmount) : null,
       foodDiscountValue: item.foodDiscountValue ? Number(item.foodDiscountValue) : null,
+      couponScope: resolveCouponScopeMatrix(item.applicableFor),
       redemptionCount: item._count.redemptions,
     })),
     pagination: {
@@ -115,6 +127,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   const payload = parsed.data;
+  if (payload.couponScope) {
+    const hasAnyScope = Object.values(payload.couponScope).some(Boolean);
+    if (!hasAnyScope) {
+      return NextResponse.json({ message: "Select at least one coupon scope" }, { status: 400 });
+    }
+  }
   const code = payload.code.trim().toUpperCase();
   const existing = await db.coupon.findUnique({ where: { code }, select: { id: true } });
   if (existing) {
@@ -142,6 +160,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       target: payload.target,
       allowedTiers: payload.allowedTiers ?? [],
       appliesTo: payload.appliesTo,
+      applicableFor: encodeCouponScopeMatrix(payload.couponScope),
       buyXQty: payload.buyXQty ?? null,
       buyYQty: payload.buyYQty ?? null,
       freeTicketTypeId: payload.freeTicketTypeId ?? null,

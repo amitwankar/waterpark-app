@@ -34,6 +34,16 @@ interface LookupBooking {
     unitPrice: number;
     gstRate: number;
   }>;
+  posPreload?: {
+    packageLines?: Array<{ packageId: string; quantity: number }>;
+    foodLines?: Array<{ foodItemId: string; foodVariantId?: string; quantity: number }>;
+    lockerLines?: Array<{ lockerId: string; quantity: number }>;
+    costumeLines?: Array<{ costumeItemId: string; quantity: number }>;
+    rideLines?: Array<{ rideId: string; quantity: number }>;
+    customDiscountType?: "NONE" | "PERCENTAGE" | "AMOUNT";
+    customDiscountValue?: number;
+    customDiscountAmount?: number;
+  } | null;
 }
 
 interface FoodOption {
@@ -71,6 +81,23 @@ interface RideAddOnOption {
   price: number;
   gstRate: number;
   rideId: string;
+}
+
+interface PackageOption {
+  id: string;
+  name: string;
+  listedPrice: number;
+  salePrice: number;
+  gstRate: number;
+  items: Array<{ itemType: string; quantity: number; label?: string }>;
+}
+
+interface CouponTemplateOption {
+  id: string;
+  code: string;
+  title: string | null;
+  discountType: string;
+  discountValue: number;
 }
 
 type PaymentMethodOption = {
@@ -117,6 +144,18 @@ export function TicketTerminal({
   const [foodOptions, setFoodOptions] = useState<FoodOption[]>([]);
   const [lockerOptions, setLockerOptions] = useState<LockerOption[]>([]);
   const [costumeOptions, setCostumeOptions] = useState<CostumeOption[]>([]);
+  const [packageOptions, setPackageOptions] = useState<PackageOption[]>([]);
+  const [packageId, setPackageId] = useState("");
+  const [packageQty, setPackageQty] = useState("1");
+  const [packageLines, setPackageLines] = useState<Array<{
+    packageId: string;
+    name: string;
+    quantity: number;
+    amount: number;
+    baseAmount: number;
+    gstRate: number;
+    items: Array<{ itemType: string; quantity: number; label?: string }>;
+  }>>([]);
 
   const [foodItemId, setFoodItemId] = useState("");
   const [foodQty, setFoodQty] = useState("1");
@@ -177,6 +216,11 @@ export function TicketTerminal({
   const [addOnError, setAddOnError] = useState<string | null>(null);
   const [importCandidate, setImportCandidate] = useState<LookupBooking | null>(null);
   const [participants, setParticipants] = useState<ParticipantRow[]>([]);
+  const [manualDiscountAmount, setManualDiscountAmount] = useState(0);
+  const [couponTemplates, setCouponTemplates] = useState<CouponTemplateOption[]>([]);
+  const [selectedCouponCode, setSelectedCouponCode] = useState("");
+  const [issueCouponTemplateId, setIssueCouponTemplateId] = useState("");
+  const [issueCouponValidityHours, setIssueCouponValidityHours] = useState("24");
   const COSTUME_DURATION_HOURS = 4;
 
   // Balance collection state
@@ -297,6 +341,31 @@ export function TicketTerminal({
           return payload.items ?? [];
         })
         .catch(() => [] as Array<{ id: string; name: string; entryFee?: number; gstRate?: number }>),
+      fetch("/api/v1/packages?activeOnly=true")
+        .then(async (response) => {
+          if (!response.ok) return [] as PackageOption[];
+          return (await response.json()) as PackageOption[];
+        })
+        .catch(() => [] as PackageOption[]),
+      fetch("/api/v1/pos/coupons/templates")
+        .then(async (response) => {
+          if (!response.ok) return [] as CouponTemplateOption[];
+          const payload = (await response.json()) as Array<{
+            id: string;
+            code: string;
+            title: string;
+            discountType: string;
+            discountValue: number;
+          }>;
+          return payload.map((item) => ({
+            id: item.id,
+            code: item.code,
+            title: item.title,
+            discountType: item.discountType,
+            discountValue: Number(item.discountValue ?? 0),
+          }));
+        })
+        .catch(() => [] as CouponTemplateOption[]),
       fetch("/api/v1/pos/payment-options")
         .then(async (response) => {
           if (!response.ok) return null;
@@ -313,10 +382,12 @@ export function TicketTerminal({
           return (await response.json()) as { lockerGstRate?: number; defaultGstRate?: number };
         })
         .catch(() => null),
-    ]).then(([foods, lockers, costumes, rides, paymentOptions, parkConfig]) => {
+    ]).then(([foods, lockers, costumes, rides, packages, templates, paymentOptions, parkConfig]) => {
       setFoodOptions(foods);
       setLockerOptions(lockers);
       setCostumeOptions(costumes);
+      setPackageOptions(packages);
+      setCouponTemplates(templates);
       const resolvedDefaultGst = typeof parkConfig?.defaultGstRate === "number" ? parkConfig.defaultGstRate : defaultGstRate;
       const rideAddOns = rides.map((ride) => ({
         rideId: ride.id,
@@ -388,6 +459,8 @@ export function TicketTerminal({
       : Boolean(idProofNumber.trim())
   );
   const foodTotal = Math.round(foodLines.reduce((sum, line) => sum + line.amount, 0) * 100) / 100;
+  const packageTotal = Math.round(packageLines.reduce((sum, line) => sum + line.amount, 0) * 100) / 100;
+  const packageGstAmount = Math.round(packageLines.reduce((sum, line) => sum + (line.baseAmount * line.gstRate) / 100, 0) * 100) / 100;
   const lockerTotal = Math.round(lockerLines.reduce((sum, line) => sum + line.amount, 0) * 100) / 100;
   const costumeTotal = Math.round(costumeLines.reduce((sum, line) => sum + line.amount, 0) * 100) / 100;
   const rideTotal = Math.round(rideLines.reduce((sum, line) => sum + line.amount, 0) * 100) / 100;
@@ -399,11 +472,13 @@ export function TicketTerminal({
       100,
   ) / 100;
   const addOnTotal = Math.round((foodTotal + lockerTotal + costumeTotal + rideTotal) * 100) / 100;
-  const grandTotal = Math.round((cart.totals.totalAmount + addOnTotal) * 100) / 100;
+  const grossGrandTotal = Math.round((cart.totals.totalAmount + packageTotal + addOnTotal) * 100) / 100;
+  const appliedManualDiscount = Math.min(Math.max(0, manualDiscountAmount), grossGrandTotal);
+  const grandTotal = Math.round((grossGrandTotal - appliedManualDiscount) * 100) / 100;
   const splitTotal = cart.splitLines.reduce((sum, line) => sum + line.amount, 0);
   const splitRemaining = Math.round((grandTotal - splitTotal) * 100) / 100;
   const isBalanced = Math.abs(splitRemaining) < 0.01;
-  const hasCartItems = cart.items.length > 0 || foodLines.length > 0 || lockerLines.length > 0 || costumeLines.length > 0 || rideLines.length > 0;
+  const hasCartItems = cart.items.length > 0 || packageLines.length > 0 || foodLines.length > 0 || lockerLines.length > 0 || costumeLines.length > 0 || rideLines.length > 0;
   const canSell = hasCartItems && isBalanced && cart.splitLines.length > 0 && mobileValid && idProofValid;
 
   async function handleSell() {
@@ -433,6 +508,10 @@ export function TicketTerminal({
             isLeadGuest: row.isLeadGuest || undefined,
           })),
           items: cart.items.map((i) => ({ ticketTypeId: i.id, quantity: i.quantity })),
+          packageLines: packageLines.map((line) => ({
+            packageId: line.packageId,
+            quantity: line.quantity,
+          })),
           foodLines: foodLines.map((line) => ({
             foodItemId: line.foodItemId,
             foodVariantId: line.foodVariantId,
@@ -447,6 +526,9 @@ export function TicketTerminal({
             rideId: line.rideId,
             quantity: line.quantity,
           })),
+          manualDiscountAmount: appliedManualDiscount > 0 ? appliedManualDiscount : undefined,
+          issueCouponTemplateId: issueCouponTemplateId || undefined,
+          issueCouponValidityHours: issueCouponTemplateId ? Math.max(1, Number(issueCouponValidityHours || "24")) : undefined,
           couponCode: cart.coupon?.code,
           paymentLines: cart.splitLines,
         }),
@@ -462,14 +544,58 @@ export function TicketTerminal({
       setIdProofNumber("");
       setIdProofLabel("");
       setLinkedBookingNumber(null);
+      setPackageLines([]);
       setFoodLines([]);
       setLockerLines([]);
       setCostumeLines([]);
       setRideLines([]);
+      setManualDiscountAmount(0);
+      setIssueCouponTemplateId("");
+      setIssueCouponValidityHours("24");
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Unknown error");
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function applySelectedCouponCode(): Promise<void> {
+    if (!selectedCouponCode.trim()) {
+      setError("Select a coupon to apply.");
+      return;
+    }
+    setError(null);
+    try {
+      const response = await fetch("/api/v1/pos/coupons/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          code: selectedCouponCode.trim().toUpperCase(),
+          subtotal: cart.totals.subtotal,
+          ticketTypeIds: cart.items.map((i) => i.id),
+          scopeUsage: {
+            ticket: cart.items.length > 0,
+            package: packageLines.length > 0,
+            food: foodLines.length > 0,
+            locker: lockerLines.length > 0,
+            costume: costumeLines.length > 0,
+            ride: rideLines.length > 0,
+          },
+          visitDate,
+          mobile: mobileValid ? guestMobile.trim() : undefined,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data?.valid || !data?.coupon) {
+        throw new Error(data?.reason ?? data?.error ?? "Coupon not applicable");
+      }
+      cart.setCoupon({
+        code: data.coupon.code,
+        discountAmount: Number(data.coupon.discountAmount ?? 0),
+        description: data.coupon.description ?? null,
+      });
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to apply coupon");
     }
   }
 
@@ -517,14 +643,18 @@ export function TicketTerminal({
     if (mode === "replace") {
       cart.clearCart();
       setFoodLines([]);
+      setPackageLines([]);
       setLockerLines([]);
       setCostumeLines([]);
+      setRideLines([]);
+      setManualDiscountAmount(0);
     }
 
     setGuestName((prev) => (mode === "replace" || !prev ? booking.guestName || "" : prev));
     setGuestMobile((prev) => (mode === "replace" || !prev ? booking.guestMobile || "" : prev));
     setVisitDate((prev) => (mode === "replace" || !prev ? (booking.visitDate || prev) : prev));
     setLinkedBookingNumber(booking.bookingNumber);
+    setManualDiscountAmount(Number(booking.posPreload?.customDiscountAmount ?? 0));
 
     for (const ticket of booking.tickets) {
       for (let i = 0; i < ticket.quantity; i += 1) {
@@ -535,6 +665,137 @@ export function TicketTerminal({
           gstRate: ticket.gstRate,
         });
       }
+    }
+
+    const requestedPackages = booking.posPreload?.packageLines ?? [];
+    for (const line of requestedPackages) {
+      const selected = packageOptions.find((item) => item.id === line.packageId);
+      if (!selected) continue;
+      const quantity = Math.max(1, Number(line.quantity || 1));
+      const baseAmount = Math.round(selected.salePrice * quantity * 100) / 100;
+      const amount = Math.round(baseAmount * (1 + selected.gstRate / 100) * 100) / 100;
+      setPackageLines((prev) => [
+        ...prev,
+        {
+          packageId: selected.id,
+          name: selected.name,
+          quantity,
+          amount,
+          baseAmount,
+          gstRate: selected.gstRate,
+          items: selected.items ?? [],
+        },
+      ]);
+    }
+
+    const requestedFood = booking.posPreload?.foodLines ?? [];
+    for (const line of requestedFood) {
+      const optionId = line.foodVariantId ? `${line.foodItemId}__${line.foodVariantId}` : line.foodItemId;
+      const selected = foodOptions.find((item) => item.id === optionId);
+      if (!selected) continue;
+      const quantity = Math.max(1, Number(line.quantity || 1));
+      const lineBase = selected.price * quantity;
+      const lineAmount = lineBase * (1 + selected.gstRate / 100);
+      setFoodLines((prev) => [
+        ...prev,
+        {
+          foodItemId: selected.foodItemId,
+          name: selected.variantName ? `${selected.name} · ${selected.variantName}` : selected.name,
+          foodVariantId: selected.foodVariantId,
+          quantity,
+          amount: Math.round(lineAmount * 100) / 100,
+          baseAmount: Math.round(lineBase * 100) / 100,
+          gstRate: selected.gstRate,
+        },
+      ]);
+    }
+
+    const requestedLockers = booking.posPreload?.lockerLines ?? [];
+    if (requestedLockers.length > 0) {
+      const pool = [...getAvailableLockers()];
+      const toAdd: Array<{ lockerId: string; number: string; amount: number; baseAmount: number; gstRate: number }> = [];
+      for (const line of requestedLockers) {
+        const quantity = Math.max(1, Number(line.quantity || 1));
+        const firstIndex = pool.findIndex((locker) => locker.id === line.lockerId);
+        if (firstIndex < 0) continue;
+        const picked = pool.splice(firstIndex, 1);
+        picked.push(...pool.splice(0, Math.max(0, quantity - 1)));
+        for (const locker of picked) {
+          const resolvedGstRate = Number(locker.gstRate ?? lockerGstRate ?? 0);
+          const baseAmount = Math.round(locker.rate * 100) / 100;
+          const amount = Math.round(baseAmount * (1 + resolvedGstRate / 100) * 100) / 100;
+          toAdd.push({
+            lockerId: locker.id,
+            number: locker.number,
+            amount,
+            baseAmount,
+            gstRate: resolvedGstRate,
+          });
+        }
+      }
+      if (toAdd.length > 0) {
+        setLockerLines((prev) => [...prev, ...toAdd]);
+      }
+    }
+
+    const requestedCostumes = booking.posPreload?.costumeLines ?? [];
+    if (requestedCostumes.length > 0) {
+      const toAdd: Array<{
+        costumeItemId: string;
+        name: string;
+        tagNumber: string;
+        durationHours: number;
+        amount: number;
+        baseAmount: number;
+        gstRate: number;
+      }> = [];
+      const usedCostumeIds = new Set(costumeLines.map((row) => row.costumeItemId));
+      for (const line of requestedCostumes) {
+        const selected = getAvailableCostumes().find((item) => item.id === line.costumeItemId);
+        if (!selected) continue;
+        const quantity = Math.max(1, Number(line.quantity || 1));
+        const availableUnitIds = selected.unitIds.filter((unitId) => !usedCostumeIds.has(unitId));
+        const chosenUnitIds = availableUnitIds.slice(0, quantity);
+        for (let index = 0; index < chosenUnitIds.length; index += 1) {
+          const unitId = chosenUnitIds[index]!;
+          usedCostumeIds.add(unitId);
+          const resolvedGstRate = selected.gstRate > 0 ? selected.gstRate : defaultGstRate;
+          const baseAmount = Math.round(selected.rentalRate * 100) / 100;
+          const amount = Math.round(baseAmount * (1 + resolvedGstRate / 100) * 100) / 100;
+          toAdd.push({
+            costumeItemId: unitId,
+            name: selected.name,
+            tagNumber: `${selected.tagNumber}${quantity > 1 ? ` #${index + 1}` : ""}`,
+            durationHours: COSTUME_DURATION_HOURS,
+            amount,
+            baseAmount,
+            gstRate: resolvedGstRate,
+          });
+        }
+      }
+      if (toAdd.length > 0) {
+        setCostumeLines((prev) => [...prev, ...toAdd]);
+      }
+    }
+
+    const requestedRides = booking.posPreload?.rideLines ?? [];
+    for (const line of requestedRides) {
+      const selected = rideOptions.find((item) => item.rideId === line.rideId);
+      if (!selected) continue;
+      const quantity = Math.max(1, Number(line.quantity || 1));
+      const baseAmount = Math.round(selected.price * quantity * 100) / 100;
+      const amount = Math.round(baseAmount * (1 + selected.gstRate / 100) * 100) / 100;
+      setRideLines((prev) => [
+        ...prev,
+        {
+          rideId: selected.rideId,
+          name: selected.rideName,
+          quantity,
+          amount,
+          baseAmount,
+          gstRate: selected.gstRate,
+        },
+      ]);
     }
 
     setImportCandidate(null);
@@ -573,6 +834,34 @@ export function TicketTerminal({
         };
       })
       .filter((item) => item.availableQuantity > 0);
+  }
+
+  function addPackageLine(): void {
+    setAddOnError(null);
+    if (!packageId) {
+      setAddOnError("Select a package first.");
+      return;
+    }
+    const selected = packageOptions.find((item) => item.id === packageId);
+    if (!selected) {
+      setAddOnError("Selected package is not available.");
+      return;
+    }
+    const quantity = Math.max(1, Number(packageQty || "1"));
+    const baseAmount = Math.round(selected.salePrice * quantity * 100) / 100;
+    const amount = Math.round(baseAmount * (1 + selected.gstRate / 100) * 100) / 100;
+    setPackageLines((prev) => [
+      ...prev,
+      {
+        packageId: selected.id,
+        name: selected.name,
+        quantity,
+        amount,
+        baseAmount,
+        gstRate: selected.gstRate,
+        items: selected.items ?? [],
+      },
+    ]);
   }
 
   function addFoodLine(): void {
@@ -910,6 +1199,51 @@ export function TicketTerminal({
                 ) : null}
               </div>
 
+              <div className="bg-white rounded-xl p-4 space-y-3">
+                <h3 className="text-sm font-semibold text-gray-700">Packages</h3>
+                <div className="grid grid-cols-3 gap-2">
+                  <select
+                    title="Package"
+                    value={packageId}
+                    onChange={(e) => {
+                      setPackageId(e.target.value);
+                      setAddOnError(null);
+                    }}
+                    className="col-span-2 border border-gray-200 rounded px-2 py-2 text-sm"
+                  >
+                    <option value="">Select package</option>
+                    {packageOptions.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.name} - ₹{item.salePrice} + {item.gstRate}% GST
+                      </option>
+                    ))}
+                  </select>
+                  <input
+                    title="Package quantity"
+                    type="number"
+                    min={1}
+                    value={packageQty}
+                    onChange={(e) => {
+                      setPackageQty(e.target.value);
+                      setAddOnError(null);
+                    }}
+                    className="border border-gray-200 rounded px-2 py-2 text-sm"
+                  />
+                </div>
+                {packageId ? (
+                  <div className="rounded-lg border border-gray-100 bg-gray-50 p-2 text-xs text-gray-600">
+                    {(packageOptions.find((item) => item.id === packageId)?.items ?? []).map((item, index) => (
+                      <span key={`${item.itemType}-${index}`} className="mr-2 inline-block">
+                        {item.itemType}: {item.label ?? "Item"} × {item.quantity}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+                <button type="button" className="text-xs text-teal-700" onClick={addPackageLine}>
+                  + Add Package
+                </button>
+              </div>
+
               {/* Ticket picker */}
               <div className="bg-white rounded-xl p-4">
                 <h3 className="text-sm font-semibold text-gray-700 mb-3">Select Tickets</h3>
@@ -1180,9 +1514,43 @@ export function TicketTerminal({
                   splitRemaining={splitRemaining}
                   onRemove={cart.removeItem}
                   onSetQty={cart.setQty}
-                  extraAmount={addOnTotal}
-                  extraGstAmount={addOnGstAmount}
+                  extraAmount={packageTotal + addOnTotal}
+                  extraGstAmount={packageGstAmount + addOnGstAmount}
+                  extraLabel="Packages + add-ons"
                 />
+                {packageLines.length > 0 ? (
+                  <div className="mt-3 space-y-2 rounded-lg border border-gray-200 p-3 text-xs text-gray-600">
+                    <p className="font-semibold text-gray-700">Packages in cart</p>
+                    {packageLines.map((line, index) => (
+                      <div key={`${line.packageId}-${index}`} className="rounded border border-gray-100 px-2 py-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <div>
+                            <p className="font-medium text-gray-700">{line.name}</p>
+                            <p className="text-gray-500">Qty {line.quantity} · GST {line.gstRate}%</p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-gray-800">₹{line.amount.toFixed(2)}</span>
+                            <button
+                              type="button"
+                              className="text-red-500 hover:text-red-600"
+                              onClick={() => setPackageLines((prev) => prev.filter((_, rowIndex) => rowIndex !== index))}
+                              title="Remove package"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        </div>
+                        <div className="mt-1 text-gray-500">
+                          {line.items.map((item, itemIndex) => (
+                            <span key={`${item.itemType}-${itemIndex}`} className="mr-2 inline-block">
+                              {item.label ?? item.itemType} × {item.quantity}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
                 {(foodLines.length > 0 || lockerLines.length > 0 || costumeLines.length > 0 || rideLines.length > 0) ? (
                   <div className="mt-3 space-y-2 rounded-lg border border-gray-200 p-3 text-xs text-gray-600">
                     <p className="font-semibold text-gray-700">Add-ons in cart</p>
@@ -1279,8 +1647,88 @@ export function TicketTerminal({
 
                 {hasCartItems && (
                   <div className="mt-4 space-y-4">
+                    <div className="rounded-lg border border-gray-200 p-3 space-y-2">
+                      <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Booking Discount Override</h3>
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={manualDiscountAmount > 0 ? manualDiscountAmount : ""}
+                        onChange={(event) => setManualDiscountAmount(Math.max(0, Number(event.target.value || 0)))}
+                        placeholder="Manual discount amount"
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                      />
+                      {appliedManualDiscount > 0 ? (
+                        <p className="text-xs text-emerald-700">
+                          Discount applied: ₹{appliedManualDiscount.toFixed(2)} · Net payable: ₹{grandTotal.toFixed(2)}
+                        </p>
+                      ) : (
+                        <p className="text-xs text-gray-500">Set only when booking has negotiated pricing.</p>
+                      )}
+                    </div>
+
+                    <div className="rounded-lg border border-gray-200 p-3 space-y-2">
+                      <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Generate One-Time Coupon</h3>
+                      <select
+                        title="Coupon template"
+                        value={issueCouponTemplateId}
+                        onChange={(event) => setIssueCouponTemplateId(event.target.value)}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                      >
+                        <option value="">No coupon</option>
+                        {couponTemplates.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.code} · {item.title} ({item.discountType})
+                          </option>
+                        ))}
+                      </select>
+                      {issueCouponTemplateId ? (
+                        <input
+                          type="number"
+                          min={1}
+                          max={24 * 90}
+                          value={issueCouponValidityHours}
+                          onChange={(event) => setIssueCouponValidityHours(event.target.value)}
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                          placeholder="Validity hours"
+                        />
+                      ) : null}
+                    </div>
+
                     <div>
                       <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Coupon</h3>
+                      <div className="mb-2 flex gap-2">
+                        <select
+                          title="Select coupon"
+                          value={selectedCouponCode}
+                          onChange={(event) => setSelectedCouponCode(event.target.value)}
+                          className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm"
+                        >
+                          <option value="">Select coupon code</option>
+                          {couponTemplates.map((item) => (
+                            <option key={item.id} value={item.code}>
+                              {item.code} · {item.title ?? "Coupon"} ({item.discountType})
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          className="px-3 py-2 rounded-lg border border-teal-500 text-teal-600 text-sm font-medium hover:bg-teal-50"
+                          onClick={() => void applySelectedCouponCode()}
+                        >
+                          Apply
+                        </button>
+                        <button
+                          type="button"
+                          className="px-3 py-2 rounded-lg border border-gray-300 text-gray-600 text-sm font-medium hover:bg-gray-50"
+                          onClick={() => {
+                            setSelectedCouponCode("");
+                            cart.clearCoupon();
+                          }}
+                        >
+                          Clear
+                        </button>
+                      </div>
                       <CouponInput
                         subtotal={cart.totals.subtotal}
                         ticketTypeIds={cart.items.map((i) => i.id)}
@@ -1324,9 +1772,15 @@ export function TicketTerminal({
                     type="button"
                     onClick={() => {
                       cart.clearCart();
+                      setPackageLines([]);
                       setFoodLines([]);
                       setLockerLines([]);
                       setCostumeLines([]);
+                      setRideLines([]);
+                      setManualDiscountAmount(0);
+                      setSelectedCouponCode("");
+                      setIssueCouponTemplateId("");
+                      setIssueCouponValidityHours("24");
                     }}
                     className="w-full text-xs text-gray-400 hover:text-red-500 py-1"
                   >
