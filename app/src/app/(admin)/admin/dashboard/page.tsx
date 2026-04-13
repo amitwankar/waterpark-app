@@ -2,6 +2,7 @@ import Link from "next/link";
 import {
   Activity,
   AlertTriangle,
+  CarFront,
   CheckCircle2,
   CreditCard,
   Hammer,
@@ -313,6 +314,9 @@ export default async function AdminDashboardPage({ searchParams }: DashboardPage
     footfallSeries,
     bookingStatusSeries,
     paymentMethodSeries,
+    parkingEntriesToday,
+    parkingExitsToday,
+    parkingRevenueToday,
   ] = await Promise.all([
     db.booking.count({ where: { createdAt: { gte: range.start, lte: range.end } } }),
     db.booking.count({ where: { createdAt: { gte: range.previousStart, lte: range.previousEnd } } }),
@@ -362,6 +366,24 @@ export default async function AdminDashboardPage({ searchParams }: DashboardPage
     getCachedFootfallData(range),
     getCachedBookingStatusData(range),
     getCachedPaymentMethodData(range),
+    db.parkingTicket.count({
+      where: {
+        entryAt: { gte: startOfDay(new Date()), lte: endOfDay(new Date()) },
+      },
+    }),
+    db.parkingTicket.count({
+      where: {
+        status: "EXITED",
+        exitAt: { gte: startOfDay(new Date()), lte: endOfDay(new Date()) },
+      },
+    }),
+    db.parkingTicket.aggregate({
+      _sum: { totalAmount: true },
+      where: {
+        status: "EXITED",
+        exitAt: { gte: startOfDay(new Date()), lte: endOfDay(new Date()) },
+      },
+    }),
   ]);
 
   const todayRevenue = Number(revenueAggregate._sum.amount ?? 0);
@@ -494,6 +516,27 @@ export default async function AdminDashboardPage({ searchParams }: DashboardPage
           subLabel={`${criticalWorkOrders} critical`}
           alert={criticalWorkOrders > 0 ? "danger" : "none"}
           badge={criticalWorkOrders > 0 ? <AlertTriangle className="h-4 w-4 text-red-500" /> : <Hammer className="h-4 w-4 text-[var(--color-primary)]" />}
+        />
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <KpiCard
+          title="Parking Entries Today"
+          value={String(parkingEntriesToday)}
+          subLabel="Vehicles checked in"
+          badge={<CarFront className="h-4 w-4 text-[var(--color-primary)]" />}
+        />
+        <KpiCard
+          title="Parking Exits Today"
+          value={String(parkingExitsToday)}
+          subLabel="Vehicles checked out"
+          badge={<CarFront className="h-4 w-4 text-[var(--color-primary)]" />}
+        />
+        <KpiCard
+          title="Parking Revenue Today"
+          value={formatInr(Number(parkingRevenueToday._sum.totalAmount ?? 0))}
+          subLabel="Collected at exit"
+          badge={<IndianRupee className="h-4 w-4 text-[var(--color-primary)]" />}
         />
       </div>
 

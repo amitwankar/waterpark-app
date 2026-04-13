@@ -9,7 +9,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { error } = await requireSubRole(
-    "TICKET_COUNTER", "FB_STAFF", "LOCKER_ATTENDANT"
+    "TICKET_COUNTER", "FB_STAFF", "LOCKER_ATTENDANT", "COSTUME_ATTENDANT", "PARKING_ATTENDANT", "SALES_EXECUTIVE"
   );
   if (error) return error;
 
@@ -22,6 +22,10 @@ export async function GET(
       transactions: {
         where: { status: "PAID" },
         select: { method: true, amount: true, createdAt: true },
+      },
+      parkingTickets: {
+        where: { status: "EXITED" },
+        select: { paymentMethod: true, totalAmount: true, exitAt: true },
       },
     },
   });
@@ -41,6 +45,14 @@ export async function GET(
     (s, t) => s + Number(t.amount),
     0
   );
+  const parkingCollected = session.parkingTickets.reduce(
+    (sum, row) => sum + Number(row.totalAmount),
+    0,
+  );
+  for (const row of session.parkingTickets) {
+    if (!row.paymentMethod) continue;
+    methodTotals[row.paymentMethod] = (methodTotals[row.paymentMethod] ?? 0) + Number(row.totalAmount);
+  }
 
   return NextResponse.json({
     session: {
@@ -57,7 +69,8 @@ export async function GET(
     },
     summary: {
       transactionCount: session.transactions.length,
-      totalCollected: Math.round(totalCollected * 100) / 100,
+      totalCollected: Math.round((totalCollected + parkingCollected) * 100) / 100,
+      parkingCount: session.parkingTickets.length,
       byMethod: Object.entries(methodTotals).map(([method, amount]) => ({
         method,
         amount: Math.round(amount * 100) / 100,

@@ -10,7 +10,7 @@ type ExportFormat = "csv" | "excel" | "pdf";
 const SUPPORTED_REPORTS = [
   "revenue", "footfall", "bookings", "payments",
   "food", "lockers", "rides", "staff-attendance",
-  "crm", "maintenance", "loyalty", "pos",
+  "crm", "maintenance", "loyalty", "pos", "parking",
 ] as const;
 
 type ReportName = (typeof SUPPORTED_REPORTS)[number];
@@ -382,6 +382,53 @@ async function fetchReportData(
           { key: "accesses", header: "Total Accesses", width: 18 },
         ],
         data: Array.from(rideMap.values()).sort((a, b) => b.accesses - a.accesses),
+      };
+    }
+
+    case "parking": {
+      const rows = await db.parkingTicket.findMany({
+        where: {
+          status: "EXITED",
+          exitAt: { gte: dateFrom, lte: dateTo },
+        },
+        select: {
+          ticketNumber: true,
+          vehicleNumber: true,
+          vehicleType: true,
+          quantity: true,
+          hours: true,
+          paymentMethod: true,
+          totalAmount: true,
+          entryAt: true,
+          exitAt: true,
+        },
+        orderBy: { exitAt: "desc" },
+      });
+
+      return {
+        title: "Parking Report",
+        columns: [
+          { key: "ticketNumber", header: "Ticket #", width: 20 },
+          { key: "vehicleNumber", header: "Vehicle", width: 20 },
+          { key: "vehicleType", header: "Type", width: 16 },
+          { key: "quantity", header: "Qty", width: 8 },
+          { key: "hours", header: "Hours", width: 8 },
+          { key: "paymentMethod", header: "Payment", width: 16 },
+          { key: "totalAmount", header: "Amount (₹)", width: 14 },
+          { key: "entryAt", header: "Entry", width: 20 },
+          { key: "exitAt", header: "Exit", width: 20 },
+        ],
+        data: rows.map((row) => ({
+          ticketNumber: row.ticketNumber,
+          vehicleNumber: row.vehicleNumber,
+          vehicleType: row.vehicleType,
+          quantity: row.quantity,
+          hours: row.hours ?? "—",
+          paymentMethod: row.paymentMethod ?? "—",
+          totalAmount: Number(row.totalAmount),
+          entryAt: row.entryAt.toISOString(),
+          exitAt: row.exitAt?.toISOString() ?? "—",
+        })),
       };
     }
 

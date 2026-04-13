@@ -33,6 +33,7 @@ const items: StaffNavItem[] = [
   { href: "/staff/food", label: "Food", subRoles: ["FB_STAFF", "ADMIN"] },
   { href: "/staff/lockers", label: "Lockers", subRoles: ["LOCKER_ATTENDANT", "ADMIN"] },
   { href: "/staff/costumes", label: "Costumes", subRoles: ["COSTUME_ATTENDANT", "ADMIN"] },
+  { href: "/staff/parking", label: "Parking", subRoles: ["PARKING_ATTENDANT", "SECURITY_STAFF", "ADMIN"] },
   { href: "/staff/maintenance", label: "Maintenance", subRoles: ["MAINTENANCE_TECH", "ADMIN"] },
 ];
 

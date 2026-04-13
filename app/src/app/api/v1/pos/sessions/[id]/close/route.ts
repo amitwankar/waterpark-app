@@ -16,7 +16,7 @@ async function closeSessionHandler(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { user, error } = await requireSubRole(
-    "TICKET_COUNTER", "FB_STAFF", "LOCKER_ATTENDANT"
+    "TICKET_COUNTER", "FB_STAFF", "LOCKER_ATTENDANT", "COSTUME_ATTENDANT", "PARKING_ATTENDANT", "SALES_EXECUTIVE"
   );
   if (error) return error;
 

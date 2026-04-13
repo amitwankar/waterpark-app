@@ -12,6 +12,7 @@ import {
   Star,
   Shirt,
   MonitorSmartphone,
+  CarFront,
 } from "lucide-react";
 
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -61,6 +62,12 @@ const REPORTS = [
     description: "Assignment count, revenue, average duration by size.",
   },
   {
+    href: "/admin/reports/parking",
+    icon: CarFront,
+    title: "Parking",
+    description: "Daily vehicle count, revenue by vehicle type, and payment split.",
+  },
+  {
     href: "/admin/reports/rides",
     icon: Zap,
     title: "Ride Popularity",
@@ -103,7 +110,7 @@ export default function ReportsLandingPage(): JSX.Element {
     <div className="space-y-6">
       <PageHeader
         title="Reports & Analytics"
-        subtitle="13 pre-built reports with CSV, Excel, and PDF export."
+        subtitle="14 pre-built reports with CSV, Excel, and PDF export."
       />
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {REPORTS.map((report) => (

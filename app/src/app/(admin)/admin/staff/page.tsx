@@ -33,6 +33,7 @@ const SUB_ROLE_LABELS: Record<string, string> = {
   RIDE_OPERATOR: "Ride Operator",
   MAINTENANCE_TECH: "Maintenance",
   LOCKER_ATTENDANT: "Locker",
+  PARKING_ATTENDANT: "Parking",
   SALES_EXECUTIVE: "Sales",
   SECURITY_STAFF: "Security",
   EVENT_COORDINATOR: "Events",

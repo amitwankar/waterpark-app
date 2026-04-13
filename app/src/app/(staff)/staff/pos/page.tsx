@@ -11,6 +11,7 @@ export default async function PosHubPage() {
     "FB_STAFF",
     "LOCKER_ATTENDANT",
     "COSTUME_ATTENDANT",
+    "PARKING_ATTENDANT",
     "SALES_EXECUTIVE"
   );
   if (error) redirect("/login");
@@ -50,6 +51,14 @@ export default async function PosHubPage() {
       color: "purple",
       allowed: ["COSTUME_ATTENDANT"],
     },
+    {
+      href: "/staff/pos/parking",
+      label: "Parking Counter",
+      description: "Entry/exit parking management with bill printing.",
+      icon: "🅿️",
+      color: "slate",
+      allowed: ["PARKING_ATTENDANT", "SECURITY_STAFF"],
+    },
   ];
 
   const available = terminals.filter(
@@ -61,6 +70,7 @@ export default async function PosHubPage() {
     orange: "border-amber-400/50 bg-amber-500/10 hover:bg-amber-500/20",
     indigo: "border-indigo-400/50 bg-indigo-500/10 hover:bg-indigo-500/20",
     purple: "border-violet-400/50 bg-violet-500/10 hover:bg-violet-500/20",
+    slate: "border-slate-400/50 bg-slate-500/10 hover:bg-slate-500/20",
   };
 
   const iconBg: Record<string, string> = {
@@ -68,6 +78,7 @@ export default async function PosHubPage() {
     orange: "bg-amber-500/20 text-amber-300",
     indigo: "bg-indigo-500/20 text-indigo-300",
     purple: "bg-violet-500/20 text-violet-300",
+    slate: "bg-slate-500/20 text-slate-300",
   };
 
   return (

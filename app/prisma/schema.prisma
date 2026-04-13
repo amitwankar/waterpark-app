@@ -39,6 +39,7 @@ enum EmployeeSubRole {
   MAINTENANCE_TECH
   LOCKER_ATTENDANT
   COSTUME_ATTENDANT
+  PARKING_ATTENDANT
   SALES_EXECUTIVE
   SECURITY_STAFF
   EVENT_COORDINATOR
@@ -273,6 +274,19 @@ enum PackageItemType {
   FOOD
 }
 
+enum ParkingVehicleType {
+  TWO_WHEELER
+  FOUR_WHEELER
+  BUS
+  OTHER
+}
+
+enum ParkingTicketStatus {
+  ACTIVE
+  EXITED
+  CANCELLED
+}
+
 // =============================================================================
 // BETTER AUTH — CORE TABLES
 // These four models match Better Auth's required schema exactly.
@@ -321,6 +335,7 @@ model User {
   posSessions          PosSession[]       @relation("PosSessionStaff")
   costumeRentalsBy     CostumeRental[]    @relation("CostumeRentedBy")
   costumeReturnsBy     CostumeRental[]    @relation("CostumeReturnedBy")
+  parkingTickets       ParkingTicket[]    @relation("ParkingIssuedBy")
 
   @@index([mobile])
   @@index([email])
@@ -786,11 +801,60 @@ model PosSession {
   staff          User            @relation("PosSessionStaff", fields: [staffId], references: [id])
   transactions   Transaction[]
   costumeRentals CostumeRental[]
+  parkingTickets ParkingTicket[]
 
   @@index([staffId])
   @@index([terminalId, status])
   @@index([openedAt])
   @@map("pos_session")
+}
+
+model ParkingRate {
+  id          String             @id @default(cuid())
+  vehicleType ParkingVehicleType @unique @map("vehicle_type")
+  label       String
+  baseRate    Decimal            @map("base_rate") @db.Decimal(12, 2)
+  gstRate     Decimal            @default(18) @map("gst_rate") @db.Decimal(5, 2)
+  isActive    Boolean            @default(true) @map("is_active")
+  createdAt   DateTime           @default(now()) @map("created_at")
+  updatedAt   DateTime           @updatedAt @map("updated_at")
+
+  tickets ParkingTicket[]
+
+  @@index([isActive])
+  @@map("parking_rate")
+}
+
+model ParkingTicket {
+  id            String             @id @default(cuid())
+  ticketNumber  String             @unique @map("ticket_number")
+  vehicleNumber String             @map("vehicle_number")
+  vehicleType   ParkingVehicleType @map("vehicle_type")
+  quantity      Int                @default(1)
+  status        ParkingTicketStatus @default(ACTIVE)
+  hours         Int?               // set at exit/billing
+  baseAmount    Decimal            @default(0) @map("base_amount") @db.Decimal(12, 2)
+  gstAmount     Decimal            @default(0) @map("gst_amount") @db.Decimal(12, 2)
+  totalAmount   Decimal            @default(0) @map("total_amount") @db.Decimal(12, 2)
+  paymentMethod TransactionMethod? @map("payment_method")
+  notes         String?            @db.Text
+  entryAt       DateTime           @default(now()) @map("entry_at")
+  exitAt        DateTime?          @map("exit_at")
+  issuedById    String             @map("issued_by_id")
+  posSessionId  String?            @map("pos_session_id")
+  rateId        String             @map("rate_id")
+  createdAt     DateTime           @default(now()) @map("created_at")
+  updatedAt     DateTime           @updatedAt @map("updated_at")
+
+  issuedBy   User       @relation("ParkingIssuedBy", fields: [issuedById], references: [id])
+  posSession PosSession? @relation(fields: [posSessionId], references: [id])
+  rate       ParkingRate @relation(fields: [rateId], references: [id])
+
+  @@index([vehicleNumber])
+  @@index([status, entryAt])
+  @@index([posSessionId])
+  @@index([issuedById])
+  @@map("parking_ticket")
 }
 
 // =============================================================================

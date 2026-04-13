@@ -15,6 +15,7 @@ const updateSchema = z.object({
       "MAINTENANCE_TECH",
       "LOCKER_ATTENDANT",
       "COSTUME_ATTENDANT",
+      "PARKING_ATTENDANT",
       "SALES_EXECUTIVE",
       "SECURITY_STAFF",
       "EVENT_COORDINATOR",

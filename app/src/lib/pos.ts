@@ -168,15 +168,26 @@ export async function getActiveSession(terminalId: string) {
 // ─── Cash totals for session ──────────────────────────────────────────────────
 
 export async function computeExpectedCash(sessionId: string, openingCash: number): Promise<number> {
-  const result = await db.transaction.aggregate({
-    where: {
-      posSessionId: sessionId,
-      method: "CASH",
-      status: "PAID",
-    },
-    _sum: { amount: true },
-  });
+  const [txResult, parkingResult] = await Promise.all([
+    db.transaction.aggregate({
+      where: {
+        posSessionId: sessionId,
+        method: "CASH",
+        status: "PAID",
+      },
+      _sum: { amount: true },
+    }),
+    db.parkingTicket.aggregate({
+      where: {
+        posSessionId: sessionId,
+        status: "EXITED",
+        paymentMethod: "CASH",
+      },
+      _sum: { totalAmount: true },
+    }),
+  ]);
 
-  const cashCollected = Number(result._sum.amount ?? 0);
-  return Math.round((openingCash + cashCollected) * 100) / 100;
+  const cashCollected = Number(txResult._sum.amount ?? 0);
+  const parkingCash = Number(parkingResult._sum.totalAmount ?? 0);
+  return Math.round((openingCash + cashCollected + parkingCash) * 100) / 100;
 }

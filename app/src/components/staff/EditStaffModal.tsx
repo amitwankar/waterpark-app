@@ -14,6 +14,7 @@ const SUB_ROLES = [
   { label: "Maintenance Tech", value: "MAINTENANCE_TECH" },
   { label: "Locker Attendant", value: "LOCKER_ATTENDANT" },
   { label: "Costume Attendant", value: "COSTUME_ATTENDANT" },
+  { label: "Parking Attendant", value: "PARKING_ATTENDANT" },
   { label: "Sales Executive", value: "SALES_EXECUTIVE" },
   { label: "Security Staff", value: "SECURITY_STAFF" },
   { label: "Event Coordinator", value: "EVENT_COORDINATOR" },

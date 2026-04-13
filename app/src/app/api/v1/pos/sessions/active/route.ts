@@ -6,7 +6,7 @@ import { getActiveSession } from "@/lib/pos";
 /** GET /api/v1/pos/sessions/active?terminalId=GATE_1 */
 export async function GET(req: NextRequest) {
   const { error } = await requireSubRole(
-    "TICKET_COUNTER", "FB_STAFF", "LOCKER_ATTENDANT", "COSTUME_ATTENDANT", "SALES_EXECUTIVE"
+    "TICKET_COUNTER", "FB_STAFF", "LOCKER_ATTENDANT", "COSTUME_ATTENDANT", "PARKING_ATTENDANT", "SALES_EXECUTIVE"
   );
   if (error) return error;
 

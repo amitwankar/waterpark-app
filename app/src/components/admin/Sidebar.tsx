@@ -23,6 +23,7 @@ import {
   MonitorSmartphone,
   ScanLine,
   Package,
+  CarFront,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/Badge";
@@ -83,6 +84,7 @@ function getGroups(): SidebarGroup[] {
         { href: "/admin/food", label: "Food & Beverage", icon: Utensils },
         { href: "/admin/lockers", label: "Lockers", icon: Lock },
         { href: "/admin/costumes", label: "Costume Rental", icon: Shirt },
+        { href: "/admin/parking", label: "Parking", icon: CarFront },
       ],
     },
     {

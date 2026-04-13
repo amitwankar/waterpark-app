@@ -59,6 +59,7 @@ const QUICK_SEARCH_ROUTES: Array<{ label: string; href: string; keywords: string
   { label: "Food", href: "/admin/food", keywords: ["food", "beverage", "fnb"] },
   { label: "Lockers", href: "/admin/lockers", keywords: ["locker", "lockers"] },
   { label: "Costumes", href: "/admin/costumes", keywords: ["costume", "rental"] },
+  { label: "Parking", href: "/admin/parking", keywords: ["parking", "vehicle"] },
   { label: "CRM Leads", href: "/admin/crm/leads", keywords: ["lead", "crm", "follow up"] },
   { label: "CRM Guests", href: "/admin/crm/guests", keywords: ["guest", "crm"] },
   { label: "Campaigns", href: "/admin/campaigns", keywords: ["campaign", "message", "communication"] },

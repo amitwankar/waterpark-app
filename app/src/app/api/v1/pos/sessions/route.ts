@@ -13,7 +13,7 @@ const openSchema = z.object({
 /** GET: list recent sessions for current staff (last 10). */
 export async function GET(req: NextRequest) {
   const { user, error } = await requireSubRole(
-    "TICKET_COUNTER", "FB_STAFF", "LOCKER_ATTENDANT"
+    "TICKET_COUNTER", "FB_STAFF", "LOCKER_ATTENDANT", "COSTUME_ATTENDANT", "PARKING_ATTENDANT", "SALES_EXECUTIVE"
   );
   if (error) return error;
 
@@ -38,7 +38,7 @@ export async function GET(req: NextRequest) {
 /** POST: open a new POS session (cash drawer). */
 export async function POST(req: NextRequest) {
   const { user, error } = await requireSubRole(
-    "TICKET_COUNTER", "FB_STAFF", "LOCKER_ATTENDANT"
+    "TICKET_COUNTER", "FB_STAFF", "LOCKER_ATTENDANT", "COSTUME_ATTENDANT", "PARKING_ATTENDANT", "SALES_EXECUTIVE"
   );
   if (error) return error;
 

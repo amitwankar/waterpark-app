@@ -13,6 +13,7 @@ const SUB_ROLES = [
   { label: "Ride Operator", value: "RIDE_OPERATOR" },
   { label: "Maintenance Tech", value: "MAINTENANCE_TECH" },
   { label: "Locker Attendant", value: "LOCKER_ATTENDANT" },
+  { label: "Parking Attendant", value: "PARKING_ATTENDANT" },
   { label: "Sales Executive", value: "SALES_EXECUTIVE" },
   { label: "Security Staff", value: "SECURITY_STAFF" },
   { label: "Event Coordinator", value: "EVENT_COORDINATOR" },
