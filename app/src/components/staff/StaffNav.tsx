@@ -64,6 +64,7 @@ export function StaffNav({ userId, role, subRole, userName }: StaffNavProps): JS
 
   useEffect(() => {
     const root = document.documentElement;
+    root.classList.toggle("dark", themeMode === "dark");
     root.classList.toggle("theme-dark", themeMode === "dark");
     root.classList.toggle("theme-light", themeMode === "light");
     window.localStorage.setItem("wp.theme.mode", themeMode);
