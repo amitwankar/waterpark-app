@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useMemo, useState } from "react";
-import { Clock3, ScanLine } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Clock3, Moon, ScanLine, Sun } from "lucide-react";
 
 import { useToast } from "@/components/feedback/Toast";
 import { Button } from "@/components/ui/Button";
@@ -36,11 +36,19 @@ const items: StaffNavItem[] = [
   { href: "/staff/maintenance", label: "Maintenance", subRoles: ["MAINTENANCE_TECH", "ADMIN"] },
 ];
 
+type ThemeMode = "light" | "dark";
+
 export function StaffNav({ userId, role, subRole, userName }: StaffNavProps): JSX.Element {
   const pathname = usePathname();
   const { pushToast } = useToast();
   const [clockingIn, setClockingIn] = useState(false);
   const [clockedInToday, setClockedInToday] = useState(false);
+  const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
+    if (typeof window === "undefined") return "dark";
+    const saved = window.localStorage.getItem("wp.theme.mode");
+    if (saved === "light" || saved === "dark") return saved;
+    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  });
   const effectiveSubRole = role === "ADMIN" ? "ADMIN" : subRole ?? "";
   const staffUserId = userId ?? null;
 
@@ -53,6 +61,13 @@ export function StaffNav({ userId, role, subRole, userName }: StaffNavProps): JS
     if (hour < 22) return "EVENING";
     return "NIGHT";
   }, []);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.toggle("theme-dark", themeMode === "dark");
+    root.classList.toggle("theme-light", themeMode === "light");
+    window.localStorage.setItem("wp.theme.mode", themeMode);
+  }, [themeMode]);
 
   async function handleClockIn(): Promise<void> {
     if (!staffUserId || clockingIn || clockedInToday) return;
@@ -125,6 +140,15 @@ export function StaffNav({ userId, role, subRole, userName }: StaffNavProps): JS
         </div>
         <div className="flex items-center gap-2">
           <span className="hidden text-sm text-[var(--color-text-muted)] md:block">{userName ?? "Staff"}</span>
+          <button
+            type="button"
+            onClick={() => setThemeMode((current) => (current === "dark" ? "light" : "dark"))}
+            className="inline-flex items-center gap-1 rounded-[var(--radius-md)] border border-[var(--color-border)] px-2.5 py-1.5 text-xs font-medium text-[var(--color-text)] hover:bg-zinc-100 dark:hover:bg-zinc-800"
+            title={`Switch to ${themeMode === "dark" ? "light" : "dark"} mode`}
+          >
+            {themeMode === "dark" ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
+            {themeMode === "dark" ? "Light" : "Dark"}
+          </button>
           <Button variant="secondary" size="sm" onClick={() => void handleClockIn()} loading={clockingIn} disabled={!staffUserId || clockedInToday}>
             <Clock3 className="h-4 w-4" />
             {clockedInToday ? "Clocked In" : "Clock In"}

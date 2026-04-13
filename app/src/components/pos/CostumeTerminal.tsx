@@ -32,6 +32,17 @@ interface CostumeProduct {
   availableQuantity: number;
 }
 
+interface IssueCartLine {
+  productId: string;
+  name: string;
+  tagNumber: string;
+  size: string;
+  categoryName: string;
+  rentalRate: number;
+  gstRate: number;
+  unitIds: string[];
+}
+
 interface ActiveRental {
   id: string;
   guestName: string;
@@ -108,6 +119,7 @@ export function CostumeTerminal({
 
   // Rent form state
   const [selectedItem, setSelectedItem] = useState<CostumeProduct | null>(null);
+  const [issueCart, setIssueCart] = useState<IssueCartLine[]>([]);
   const [guestName, setGuestName] = useState("");
   const [guestMobile, setGuestMobile] = useState("");
   const [quantity, setQuantity] = useState("1");
@@ -252,12 +264,19 @@ export function CostumeTerminal({
   });
 
   const qty = Math.max(1, Number(quantity || "1"));
-  const effectiveQty = qty;
+  const usedIssueUnitIds = new Set(issueCart.flatMap((line) => line.unitIds));
+  const selectedAvailableQty = selectedItem
+    ? selectedItem.unitIds.filter((unitId) => !usedIssueUnitIds.has(unitId)).length
+    : 0;
+  const effectiveQty = selectedItem ? Math.min(qty, Math.max(1, selectedAvailableQty)) : qty;
   const perUnitCharge = selectedItem
     ? Math.round(selectedItem.rentalRate * (1 + selectedItem.gstRate / 100) * 100) / 100
     : 0;
-  const totalCharge = Math.round(perUnitCharge * effectiveQty * 100) / 100;
-  const totalWithDeposit = totalCharge + Math.max(0, Number(depositAmount || 0));
+  const cartRentalTotal = Math.round(
+    issueCart.reduce((sum, line) => sum + line.unitIds.length * line.rentalRate * (1 + line.gstRate / 100), 0) * 100,
+  ) / 100;
+  const cartQty = issueCart.reduce((sum, line) => sum + line.unitIds.length, 0);
+  const totalWithDeposit = cartRentalTotal + Math.max(0, Number(depositAmount || 0));
   const rentalGroups = rentals.reduce<RentalGroup[]>((acc, rental) => {
     const key = [
       rental.guestName.trim().toLowerCase(),
@@ -291,21 +310,107 @@ export function CostumeTerminal({
     return acc;
   }, []);
 
-  async function handleRent() {
-    if (!selectedItem || !guestName.trim()) {
-      setRentError("Select a costume and enter guest name."); return;
-    }
-    if (qty > selectedItem.availableQuantity) {
-      setRentError(`Only ${selectedItem.availableQuantity} item(s) available for this costume.`);
+  function addSelectedToCart() {
+    if (!selectedItem) {
+      setRentError("Select a costume first.");
       return;
+    }
+    const requestedQty = Math.max(1, Number(quantity || "1"));
+    const remainingUnitIds = selectedItem.unitIds.filter((unitId) => !usedIssueUnitIds.has(unitId));
+    if (remainingUnitIds.length <= 0) {
+      setRentError(`No available unit left for ${selectedItem.name}.`);
+      return;
+    }
+    if (requestedQty > remainingUnitIds.length) {
+      setRentError(`Only ${remainingUnitIds.length} item(s) available for ${selectedItem.name}.`);
+      return;
+    }
+    const pickedUnitIds = remainingUnitIds.slice(0, requestedQty);
+    setIssueCart((prev) => {
+      const existingIndex = prev.findIndex((line) => line.productId === selectedItem.id);
+      if (existingIndex < 0) {
+        return [
+          ...prev,
+          {
+            productId: selectedItem.id,
+            name: selectedItem.name,
+            tagNumber: selectedItem.tagNumber,
+            size: selectedItem.size,
+            categoryName: selectedItem.categoryName,
+            rentalRate: selectedItem.rentalRate,
+            gstRate: selectedItem.gstRate,
+            unitIds: pickedUnitIds,
+          },
+        ];
+      }
+      return prev.map((line, index) =>
+        index === existingIndex
+          ? {
+              ...line,
+              unitIds: [...line.unitIds, ...pickedUnitIds],
+            }
+          : line,
+      );
+    });
+    setRentError(null);
+    setQuantity("1");
+  }
+
+  function getMaxQtyForProduct(productId: string, cartLines: IssueCartLine[] = issueCart): number {
+    const product = items.find((row) => row.id === productId);
+    if (!product) return 0;
+    const otherUsedUnitIds = new Set(
+      cartLines
+        .filter((line) => line.productId !== productId)
+        .flatMap((line) => line.unitIds),
+    );
+    return product.unitIds.filter((unitId) => !otherUsedUnitIds.has(unitId)).length;
+  }
+
+  function incrementCartLine(productId: string): void {
+    setIssueCart((prev) => {
+      const line = prev.find((row) => row.productId === productId);
+      if (!line) return prev;
+      const product = items.find((row) => row.id === productId);
+      if (!product) return prev;
+
+      const otherUsedUnitIds = new Set(
+        prev
+          .filter((row) => row.productId !== productId)
+          .flatMap((row) => row.unitIds),
+      );
+      const selectableUnitIds = product.unitIds.filter((unitId) => !otherUsedUnitIds.has(unitId));
+      if (line.unitIds.length >= selectableUnitIds.length) return prev;
+
+      const nextUnitId = selectableUnitIds.find((unitId) => !line.unitIds.includes(unitId));
+      if (!nextUnitId) return prev;
+
+      return prev.map((row) =>
+        row.productId === productId ? { ...row, unitIds: [...row.unitIds, nextUnitId] } : row,
+      );
+    });
+  }
+
+  function decrementCartLine(productId: string): void {
+    setIssueCart((prev) => {
+      const line = prev.find((row) => row.productId === productId);
+      if (!line) return prev;
+      if (line.unitIds.length <= 1) {
+        return prev.filter((row) => row.productId !== productId);
+      }
+      return prev.map((row) =>
+        row.productId === productId ? { ...row, unitIds: row.unitIds.slice(0, -1) } : row,
+      );
+    });
+  }
+
+  async function handleRent() {
+    if (issueCart.length === 0 || !guestName.trim()) {
+      setRentError("Add costume(s) to cart and enter guest name."); return;
     }
     setRenting(true); setRentError(null);
     try {
-      const chosenUnitIds = selectedItem.unitIds.slice(0, effectiveQty);
-      if (chosenUnitIds.length < effectiveQty) {
-        setRentError(`Only ${chosenUnitIds.length} item(s) available right now.`);
-        return;
-      }
+      const chosenUnitIds = issueCart.flatMap((line) => line.unitIds);
       const res = await fetch("/api/v1/costumes/rentals", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -321,8 +426,9 @@ export function CostumeTerminal({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Rental failed");
-      setRentSuccess(`${effectiveQty} ${selectedItem.name} item(s) issued to ${guestName}.`);
+      setRentSuccess(`${chosenUnitIds.length} costume item(s) issued to ${guestName}.`);
       setSelectedItem(null);
+      setIssueCart([]);
       setGuestName("");
       setGuestMobile("");
       setQuantity("1");
@@ -474,7 +580,7 @@ export function CostumeTerminal({
                   <p className="font-mono text-xs text-[var(--color-text-muted)]">{selectedItem.tagNumber}</p>
                   <p className="font-bold text-[var(--color-text)]">{selectedItem.name}</p>
                   <p className="text-xs text-[var(--color-text-muted)]">{selectedItem.categoryName} · {SIZE_LABELS[selectedItem.size] ?? selectedItem.size}</p>
-                  <p className="text-xs text-[var(--color-text-muted)] mt-1">Available: {selectedItem.availableQuantity}</p>
+                  <p className="text-xs text-[var(--color-text-muted)] mt-1">Available: {selectedAvailableQty}</p>
                 </div>
               ) : (
                 <div className="bg-[var(--color-surface-2)] border border-dashed border-[var(--color-border)] rounded-xl p-4 text-center text-sm text-[var(--color-text-muted)]">
@@ -554,7 +660,7 @@ export function CostumeTerminal({
                 <input
                   type="number"
                   min={1}
-                  max={selectedItem?.availableQuantity ?? 1}
+                  max={Math.max(1, selectedAvailableQty)}
                   value={quantity}
                   onChange={(e) => {
                     setQuantity(e.target.value);
@@ -562,6 +668,14 @@ export function CostumeTerminal({
                   }}
                   className="w-full border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
                 />
+                <button
+                  type="button"
+                  onClick={addSelectedToCart}
+                  disabled={!selectedItem || selectedAvailableQty <= 0}
+                  className="mt-2 w-full rounded-lg border border-[var(--color-primary)] px-3 py-2 text-xs font-semibold text-[var(--color-primary)] hover:bg-[var(--color-primary)]/10 disabled:opacity-40"
+                >
+                  Add To Cart
+                </button>
               </div>
               <div>
                 <label className="block text-xs font-medium text-[var(--color-text-muted)] mb-1">Payment Method</label>
@@ -593,21 +707,59 @@ export function CostumeTerminal({
                 <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">Refund this amount on return if applicable.</p>
               </div>
 
-              {selectedItem && (
+              {issueCart.length > 0 ? (
+                <div className="bg-[var(--color-surface-2)] rounded-xl p-3 text-sm space-y-2 border border-[var(--color-border)]">
+                  <p className="text-xs font-semibold text-[var(--color-text-muted)]">Costumes In Cart</p>
+                  {issueCart.map((line) => (
+                    <div key={line.productId} className="flex items-center justify-between rounded border border-[var(--color-border)] px-2 py-1.5">
+                      <div>
+                        <p className="text-sm font-medium text-[var(--color-text)]">{line.name}</p>
+                        <p className="text-[11px] text-[var(--color-text-muted)]">
+                          {line.categoryName} · {SIZE_LABELS[line.size] ?? line.size} · Qty {line.unitIds.length}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => decrementCartLine(line.productId)}
+                          className="h-7 w-7 rounded border border-[var(--color-border)] text-sm text-[var(--color-text)] hover:bg-[var(--color-surface)]"
+                          title="Decrease quantity"
+                        >
+                          -
+                        </button>
+                        <span className="min-w-6 text-center text-xs font-semibold text-[var(--color-text)]">{line.unitIds.length}</span>
+                        <button
+                          type="button"
+                          onClick={() => incrementCartLine(line.productId)}
+                          disabled={line.unitIds.length >= getMaxQtyForProduct(line.productId)}
+                          className="h-7 w-7 rounded border border-[var(--color-border)] text-sm text-[var(--color-text)] hover:bg-[var(--color-surface)] disabled:opacity-40"
+                          title="Increase quantity"
+                        >
+                          +
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setIssueCart((prev) => prev.filter((row) => row.productId !== line.productId))}
+                          className="ml-1 text-xs text-red-600 hover:text-red-700"
+                          title="Remove from cart"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+
+              {(selectedItem || issueCart.length > 0) && (
                 <div className="bg-[var(--color-surface-2)] rounded-xl p-3 text-sm space-y-1 border border-[var(--color-border)]">
                   <div className="flex justify-between text-[var(--color-text-muted)]">
-                    <span>Unit Rental</span>
-                    <span>₹{Number(selectedItem.rentalRate).toFixed(2)}</span>
+                    <span>Costume Rental Total</span>
+                    <span>₹{cartRentalTotal.toFixed(2)}</span>
                   </div>
-                  {Number(selectedItem.gstRate) > 0 && (
-                    <div className="flex justify-between text-[var(--color-text-muted)]">
-                      <span>GST ({selectedItem.gstRate}%)</span>
-                      <span>₹{(Number(selectedItem.rentalRate) * Number(selectedItem.gstRate) / 100).toFixed(2)}</span>
-                    </div>
-                  )}
                   <div className="flex justify-between text-[var(--color-text-muted)]">
-                    <span>Quantity</span>
-                    <span>{effectiveQty}</span>
+                    <span>Total Qty</span>
+                    <span>{cartQty}</span>
                   </div>
                   {depositAmount > 0 && (
                     <div className="flex justify-between text-[var(--color-text-muted)]">
@@ -630,10 +782,10 @@ export function CostumeTerminal({
             <div className="p-4 border-t border-gray-100">
               <button
                 onClick={handleRent}
-                disabled={renting || !selectedItem || !guestName.trim()}
+                disabled={renting || issueCart.length === 0 || !guestName.trim()}
                 className="w-full bg-purple-600 hover:bg-purple-700 disabled:opacity-40 text-white font-bold py-3 rounded-xl text-sm"
               >
-                {renting ? "Processing…" : `Issue Costume · ₹${totalWithDeposit.toFixed(2)}`}
+                {renting ? "Processing…" : `Checkout ${cartQty} item(s) · ₹${totalWithDeposit.toFixed(2)}`}
               </button>
             </div>
           </div>

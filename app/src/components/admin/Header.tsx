@@ -1,6 +1,6 @@
 "use client";
 
-import { Bell, ChevronDown, ChevronRight, Menu, Search } from "lucide-react";
+import { Bell, ChevronDown, ChevronRight, Menu, Moon, Search, Sun } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -13,6 +13,8 @@ export interface AdminHeaderProps {
   onOpenMobileSidebar: () => void;
   userName?: string | null;
 }
+
+type ThemeMode = "light" | "dark";
 
 function labelFromSegment(segment: string): string {
   return segment
@@ -80,6 +82,12 @@ export function AdminHeader({
   const [unreadCount, setUnreadCount] = useState(0);
   const [loggingOut, setLoggingOut] = useState(false);
   const [lastDismissed, setLastDismissed] = useState<HeaderNotificationItem | null>(null);
+  const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
+    if (typeof window === "undefined") return "dark";
+    const saved = window.localStorage.getItem("wp.theme.mode");
+    if (saved === "light" || saved === "dark") return saved;
+    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  });
   const notifPanelRef = useRef<HTMLDivElement | null>(null);
   const userPanelRef = useRef<HTMLDivElement | null>(null);
   const undoTimerRef = useRef<number | null>(null);
@@ -191,6 +199,13 @@ export function AdminHeader({
   }, []);
 
   useEffect(() => {
+    const root = document.documentElement;
+    root.classList.toggle("theme-dark", themeMode === "dark");
+    root.classList.toggle("theme-light", themeMode === "light");
+    window.localStorage.setItem("wp.theme.mode", themeMode);
+  }, [themeMode]);
+
+  useEffect(() => {
     const onClickOutside = (event: MouseEvent): void => {
       const target = event.target as Node;
       if (notifPanelRef.current && !notifPanelRef.current.contains(target)) {
@@ -249,6 +264,15 @@ export function AdminHeader({
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setThemeMode((current) => (current === "dark" ? "light" : "dark"))}
+            className="inline-flex h-9 items-center gap-1 rounded-[var(--radius-md)] border border-[var(--color-border)] px-2.5 text-xs font-medium text-[var(--color-text)] transition hover:bg-zinc-100 dark:hover:bg-zinc-800"
+            title={`Switch to ${themeMode === "dark" ? "light" : "dark"} mode`}
+          >
+            {themeMode === "dark" ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
+            <span className="hidden sm:inline">{themeMode === "dark" ? "Light" : "Dark"}</span>
+          </button>
           <div className="relative hidden md:block">
             <div className="flex items-center gap-2 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-2.5 py-2 text-sm text-[var(--color-text-muted)]">
             <Search className="h-4 w-4" />
