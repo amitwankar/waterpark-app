@@ -11,6 +11,7 @@ import { NotificationSettings } from "@/components/settings/NotificationSettings
 import { OperatingHoursGrid, type OperatingDayRow } from "@/components/settings/OperatingHoursGrid";
 import { PaymentSettings } from "@/components/settings/PaymentSettings";
 import { PricingSettings } from "@/components/settings/PricingSettings";
+import { QueueSettings } from "@/components/settings/QueueSettings";
 import { SettingsNav } from "@/components/settings/SettingsNav";
 import { UnsavedChangesGuard } from "@/components/settings/UnsavedChangesGuard";
 import { UserManagement, type UserRow } from "@/components/settings/UserManagement";
@@ -58,6 +59,8 @@ interface SettingsPayload {
   maxDaysAhead: number;
   bookingCutoffHour: number;
   maxTicketsPerBooking: number;
+  queueLimitPerDay: number;
+  queuePrefix: string;
   operatingHours: OperatingDayRow[];
   notifyBookingConfirm: boolean;
   notifyCheckin: boolean;
@@ -75,6 +78,7 @@ const NAV_ITEMS = [
   { id: "pricing", label: "Pricing" },
   { id: "payment", label: "Payment" },
   { id: "capacity", label: "Capacity" },
+  { id: "queue", label: "Queue" },
   { id: "operating-hours", label: "Operating Hours" },
   { id: "holidays", label: "Holidays" },
   { id: "notifications", label: "Notifications" },
@@ -139,6 +143,7 @@ export default function SettingsPage(): JSX.Element {
       pricing: (dirty: boolean) => markDirty("pricing", dirty),
       payment: (dirty: boolean) => markDirty("payment", dirty),
       capacity: (dirty: boolean) => markDirty("capacity", dirty),
+      queue: (dirty: boolean) => markDirty("queue", dirty),
       operatingHours: (dirty: boolean) => markDirty("operating-hours", dirty),
       notifications: (dirty: boolean) => markDirty("notifications", dirty),
     }),
@@ -247,6 +252,15 @@ export default function SettingsPage(): JSX.Element {
             }}
             onSaved={handleSaved}
             onDirtyChange={dirtyHandlers.capacity}
+          />
+
+          <QueueSettings
+            initialValue={{
+              queueLimitPerDay: settings.queueLimitPerDay ?? 0,
+              queuePrefix: settings.queuePrefix ?? "Q",
+            }}
+            onSaved={handleSaved}
+            onDirtyChange={dirtyHandlers.queue}
           />
 
           <OperatingHoursGrid

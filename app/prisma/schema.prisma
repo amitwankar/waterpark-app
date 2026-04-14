@@ -207,6 +207,12 @@ enum MessageStatus {
   FAILED
 }
 
+enum QueueRequestStatus {
+  PENDING
+  IMPORTED
+  CANCELLED
+}
+
 // ─── Food & Beverage ──────────────────────────────────────────────────────────
 
 enum FoodOrderStatus {
@@ -336,6 +342,7 @@ model User {
   costumeRentalsBy     CostumeRental[]    @relation("CostumeRentedBy")
   costumeReturnsBy     CostumeRental[]    @relation("CostumeReturnedBy")
   parkingTickets       ParkingTicket[]    @relation("ParkingIssuedBy")
+  queueImports         QueueRequest[]     @relation("QueueImportedBy")
 
   @@index([mobile])
   @@index([email])
@@ -469,6 +476,13 @@ model ParkConfig {
   bookingCutoffHour    Int     @default(23) @map("booking_cutoff_hour") // hour (0–23) after which same-day blocked
   maxTicketsPerBooking Int     @default(20) @map("max_tickets_per_booking")
 
+  // Public Queue (no-payment pre-order at gate)
+  queueLimitPerDay   Int    @default(0) @map("queue_limit_per_day") // 0 = unlimited
+  queuePrefix        String @default("Q") @map("queue_prefix")
+  queueSeqDateKey    String @default("") @map("queue_seq_date_key") // YYYYMMDD
+  queueSeqNumber     Int    @default(1) @map("queue_seq_number")
+  queueSeqResetCount Int    @default(0) @map("queue_seq_reset_count")
+
   // ── Operating Hours (JSON array of 7 day objects) ────────────────────────
   // Format: [{ day: 0, isOpen: true, openTime: "09:00", closeTime: "20:00" }]
   // day: 0=Mon … 6=Sun
@@ -488,6 +502,34 @@ model ParkConfig {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("park_config")
+}
+
+/// Public "queue booking" created without payment.
+/// Used by ticket counter POS to import selections and generate final ticket.
+model QueueRequest {
+  id               String             @id @default(cuid())
+  queueCode        String             @unique @map("queue_code")
+  status           QueueRequestStatus @default(PENDING)
+  visitDate        DateTime           @db.Date @map("visit_date")
+  guestName        String             @map("guest_name")
+  guestMobile      String?            @map("guest_mobile")
+  guestEmail       String?            @map("guest_email")
+  participantCount Int                @default(0) @map("participant_count")
+  participants     Json?
+  items            Json
+  subtotal         Decimal            @db.Decimal(12, 2)
+  gstAmount        Decimal            @db.Decimal(12, 2)
+  totalAmount      Decimal            @db.Decimal(12, 2)
+  importedAt       DateTime?          @map("imported_at")
+  importedById     String?            @map("imported_by_id")
+  notes            String?            @db.Text
+  createdAt        DateTime           @default(now()) @map("created_at")
+
+  importedBy User? @relation("QueueImportedBy", fields: [importedById], references: [id])
+
+  @@index([status, createdAt])
+  @@index([visitDate, status])
+  @@map("queue_request")
 }
 
 enum HolidayType {

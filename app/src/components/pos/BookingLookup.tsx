@@ -6,6 +6,7 @@ import { parseBookingQrContent } from "@/lib/qr";
 interface BookingResult {
   id: string;
   bookingNumber: string;
+  sourceType?: "BOOKING" | "QUEUE";
   guestName: string;
   guestMobile: string;
   visitDate: string;
@@ -55,10 +56,27 @@ export function BookingLookup({ onSelect }: BookingLookupProps) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/v1/pos/booking-lookup?q=${encodeURIComponent(normalized)}`);
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Search failed");
-      setResults(data);
+      const [bookingRes, queueRes] = await Promise.all([
+        fetch(`/api/v1/pos/booking-lookup?q=${encodeURIComponent(normalized)}`),
+        fetch(`/api/v1/pos/queue-lookup?q=${encodeURIComponent(normalized)}`),
+      ]);
+
+      const bookingData = (await bookingRes.json().catch(() => [])) as BookingResult[];
+      const queueData = (await queueRes.json().catch(() => [])) as BookingResult[];
+
+      const bookings: BookingResult[] = bookingRes.ok
+        ? bookingData.map((row) => ({ ...row, sourceType: "BOOKING" as const }))
+        : [];
+      const queues: BookingResult[] = queueRes.ok
+        ? queueData.map((row) => ({ ...row, sourceType: "QUEUE" as const }))
+        : [];
+
+      if (!bookingRes.ok && !queueRes.ok) {
+        const msg = (bookingData as any)?.error ?? (queueData as any)?.error ?? "Search failed";
+        throw new Error(String(msg));
+      }
+
+      setResults([...queues, ...bookings]);
       setSearched(true);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Error");
@@ -83,6 +101,11 @@ export function BookingLookup({ onSelect }: BookingLookupProps) {
   const STATUS_BADGE: Record<string, string> = {
     PENDING: "bg-yellow-100 text-yellow-700",
     CONFIRMED: "bg-green-100 text-green-700",
+  };
+
+  const SOURCE_BADGE: Record<string, string> = {
+    QUEUE: "bg-indigo-100 text-indigo-700",
+    BOOKING: "bg-teal-100 text-teal-700",
   };
 
   return (
@@ -127,6 +150,11 @@ export function BookingLookup({ onSelect }: BookingLookupProps) {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-semibold text-sm text-gray-900">{b.bookingNumber}</span>
+                  {b.sourceType ? (
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${SOURCE_BADGE[b.sourceType] ?? "bg-gray-100 text-gray-600"}`}>
+                      {b.sourceType}
+                    </span>
+                  ) : null}
                   <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_BADGE[b.status] ?? "bg-gray-100 text-gray-600"}`}>
                     {b.status}
                   </span>

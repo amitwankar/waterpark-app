@@ -24,9 +24,10 @@ import { RidesStatusGrid } from "@/components/dashboard/RidesStatusGrid";
 import { StaffOnDutyTable } from "@/components/dashboard/StaffOnDutyTable";
 import { UpiQueueStrip } from "@/components/dashboard/UpiQueueStrip";
 import { Badge } from "@/components/ui/Badge";
-import { Card, CardBody } from "@/components/ui/Card";
+import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { db } from "@/lib/db";
+import { getIstTodayDateOnly } from "@/lib/queue-public";
 import { redis } from "@/lib/redis";
 
 interface DashboardPageProps {
@@ -317,6 +318,7 @@ export default async function AdminDashboardPage({ searchParams }: DashboardPage
     parkingEntriesToday,
     parkingExitsToday,
     parkingRevenueToday,
+    pendingQueueRequests,
   ] = await Promise.all([
     db.booking.count({ where: { createdAt: { gte: range.start, lte: range.end } } }),
     db.booking.count({ where: { createdAt: { gte: range.previousStart, lte: range.previousEnd } } }),
@@ -383,6 +385,11 @@ export default async function AdminDashboardPage({ searchParams }: DashboardPage
         status: "EXITED",
         exitAt: { gte: startOfDay(new Date()), lte: endOfDay(new Date()) },
       },
+    }),
+    db.queueRequest.findMany({
+      where: { visitDate: getIstTodayDateOnly(), status: "PENDING" },
+      orderBy: { createdAt: "asc" },
+      take: 10,
     }),
   ]);
 
@@ -539,6 +546,29 @@ export default async function AdminDashboardPage({ searchParams }: DashboardPage
           badge={<IndianRupee className="h-4 w-4 text-[var(--color-primary)]" />}
         />
       </div>
+
+      {pendingQueueRequests.length > 0 ? (
+        <Card>
+          <CardHeader>
+            <h2 className="text-lg font-semibold text-[var(--color-text)]">Queue (Pending)</h2>
+            <p className="text-sm text-[var(--color-text-muted)]">Public queue requests waiting to be imported in ticket POS.</p>
+          </CardHeader>
+          <CardBody className="space-y-2">
+            {pendingQueueRequests.map((row: any) => (
+              <div key={row.id} className="flex items-center justify-between rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-[var(--color-text)]">{row.queueCode}</p>
+                  <p className="text-xs text-[var(--color-text-muted)] truncate">{row.guestName}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-sm font-semibold text-[var(--color-text)]">{formatInr(Number(row.totalAmount))}</p>
+                  <p className="text-xs text-[var(--color-text-muted)]">{row.createdAt.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}</p>
+                </div>
+              </div>
+            ))}
+          </CardBody>
+        </Card>
+      ) : null}
 
       <div className="grid gap-4 xl:grid-cols-2">
         <RevenueChart data={revenueSeries} />

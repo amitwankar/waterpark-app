@@ -24,6 +24,7 @@ type IdProofType = "AADHAAR" | "DRIVING_LICENSE" | "PAN" | "PASSPORT" | "VOTER_I
 interface LookupBooking {
   id: string;
   bookingNumber: string;
+  sourceType?: "BOOKING" | "QUEUE";
   guestName: string;
   guestMobile: string;
   visitDate: string;
@@ -141,6 +142,7 @@ export function TicketTerminal({
   const [receiptRef, setReceiptRef] = useState<string | null>(null);
   const [showCloser, setShowCloser] = useState(false);
   const [linkedBookingNumber, setLinkedBookingNumber] = useState<string | null>(null);
+  const [linkedQueueRequestId, setLinkedQueueRequestId] = useState<string | null>(null);
   const [foodOptions, setFoodOptions] = useState<FoodOption[]>([]);
   const [lockerOptions, setLockerOptions] = useState<LockerOption[]>([]);
   const [costumeOptions, setCostumeOptions] = useState<CostumeOption[]>([]);
@@ -530,6 +532,7 @@ export function TicketTerminal({
           issueCouponTemplateId: issueCouponTemplateId || undefined,
           issueCouponValidityHours: issueCouponTemplateId ? Math.max(1, Number(issueCouponValidityHours || "24")) : undefined,
           couponCode: cart.coupon?.code,
+          queueRequestId: linkedQueueRequestId || undefined,
           paymentLines: cart.splitLines,
         }),
       });
@@ -544,6 +547,7 @@ export function TicketTerminal({
       setIdProofNumber("");
       setIdProofLabel("");
       setLinkedBookingNumber(null);
+      setLinkedQueueRequestId(null);
       setPackageLines([]);
       setFoodLines([]);
       setLockerLines([]);
@@ -648,12 +652,14 @@ export function TicketTerminal({
       setCostumeLines([]);
       setRideLines([]);
       setManualDiscountAmount(0);
+      setLinkedQueueRequestId(null);
     }
 
     setGuestName((prev) => (mode === "replace" || !prev ? booking.guestName || "" : prev));
     setGuestMobile((prev) => (mode === "replace" || !prev ? booking.guestMobile || "" : prev));
     setVisitDate((prev) => (mode === "replace" || !prev ? (booking.visitDate || prev) : prev));
     setLinkedBookingNumber(booking.bookingNumber);
+    setLinkedQueueRequestId(booking.sourceType === "QUEUE" ? booking.id : null);
     setManualDiscountAmount(Number(booking.posPreload?.customDiscountAmount ?? 0));
 
     for (const ticket of booking.tickets) {

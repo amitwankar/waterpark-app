@@ -74,6 +74,7 @@ const saleSchema = z.object({
   guestMobile: z.string().regex(/^[6-9]\d{9}$/),
   guestEmail: z.string().email().optional().or(z.literal("")),
   visitDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  queueRequestId: z.string().min(1).optional(),
   items: z.array(lineSchema).min(0),
   couponCode: z.string().optional(),
   idProofType: z.enum(["AADHAAR", "DRIVING_LICENSE", "PAN", "PASSPORT", "VOTER_ID", "OTHER"]).optional(),
@@ -180,6 +181,7 @@ export async function POST(req: NextRequest) {
     guestMobile,
     guestEmail,
     visitDate,
+    queueRequestId,
     items,
     couponCode,
     paymentLines,
@@ -1117,6 +1119,19 @@ export async function POST(req: NextRequest) {
     },
     "POS ticket sale completed",
   );
+
+  if (queueRequestId) {
+    await db.queueRequest.updateMany({
+      where: { id: queueRequestId, status: "PENDING" },
+      data: {
+        status: "IMPORTED",
+        importedAt: new Date(),
+        importedById: user.id,
+      },
+    }).catch(() => {
+      // Non-fatal; never block ticket sale completion.
+    });
+  }
 
   return NextResponse.json(responsePayload, { status: 201 });
 }
