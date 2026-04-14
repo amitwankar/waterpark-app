@@ -75,6 +75,7 @@ const saleSchema = z.object({
   guestEmail: z.string().email().optional().or(z.literal("")),
   visitDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   queueRequestId: z.string().min(1).optional(),
+  sourceBookingId: z.string().min(1).optional(),
   items: z.array(lineSchema).min(0),
   couponCode: z.string().optional(),
   idProofType: z.enum(["AADHAAR", "DRIVING_LICENSE", "PAN", "PASSPORT", "VOTER_ID", "OTHER"]).optional(),
@@ -113,6 +114,10 @@ function parseOperatingHours(value: unknown): OperatingDay[] {
       };
     })
     .filter((row) => Number.isFinite(row.day) && row.day >= 0 && row.day <= 6);
+}
+
+function normalizeTagBase(tagNumber: string): string {
+  return String(tagNumber).trim().toUpperCase().replace(/-\d{3}$/i, "");
 }
 
 function getKolkataNowParts(): { date: string; hour: number } {
@@ -182,6 +187,7 @@ export async function POST(req: NextRequest) {
     guestEmail,
     visitDate,
     queueRequestId,
+    sourceBookingId,
     items,
     couponCode,
     paymentLines,
@@ -200,6 +206,11 @@ export async function POST(req: NextRequest) {
     participants = [],
   } =
     parsed.data;
+
+  if (queueRequestId && sourceBookingId) {
+    requestLogger.warn("POS ticket sale rejected: both queueRequestId and sourceBookingId provided");
+    return NextResponse.json({ error: "Provide either queueRequestId or sourceBookingId (not both)" }, { status: 400 });
+  }
 
   if (
     items.length === 0 &&
@@ -277,8 +288,8 @@ export async function POST(req: NextRequest) {
   const packageMap = new Map(packages.map((pkg) => [pkg.id, pkg]));
   const expandedTicketLines: Array<{ ticketTypeId: string; quantity: number }> = [];
   const expandedFoodLines: Array<{ foodItemId: string; foodVariantId?: string; quantity: number; packageIncluded: true }> = [];
-  const expandedLockerLines: Array<{ lockerId: string; amount: number; packageIncluded: true }> = [];
-  const expandedCostumeLines: Array<{ costumeItemId: string; durationHours: number; packageIncluded: true }> = [];
+  const expandedLockerRequests: Array<{ lockerRefId: string; quantity: number; packageIncluded: true }> = [];
+  const expandedCostumeRequests: Array<{ costumeRefId: string; quantity: number; durationHours: number; packageIncluded: true }> = [];
   const expandedRideLines: Array<{ rideId: string; quantity: number; packageIncluded: true }> = [];
   const packageCartLines: CartLineItem[] = packageLines.map((line) => {
     const pkg = packageMap.get(line.packageId)!;
@@ -291,10 +302,10 @@ export async function POST(req: NextRequest) {
         expandedRideLines.push({ rideId: item.rideId, quantity, packageIncluded: true });
       }
       if (item.itemType === "LOCKER" && item.lockerId) {
-        expandedLockerLines.push({ lockerId: item.lockerId, amount: 0, packageIncluded: true });
+        expandedLockerRequests.push({ lockerRefId: item.lockerId, quantity, packageIncluded: true });
       }
       if (item.itemType === "COSTUME" && item.costumeItemId) {
-        expandedCostumeLines.push({ costumeItemId: item.costumeItemId, durationHours: 4, packageIncluded: true });
+        expandedCostumeRequests.push({ costumeRefId: item.costumeItemId, quantity, durationHours: 4, packageIncluded: true });
       }
       if (item.itemType === "FOOD" && item.foodItemId) {
         expandedFoodLines.push({
@@ -315,16 +326,199 @@ export async function POST(req: NextRequest) {
   });
   const allTicketItems = [...items, ...expandedTicketLines];
   const allFoodLines = [...foodLines.map((line) => ({ ...line, packageIncluded: false as const })), ...expandedFoodLines];
-  const allLockerLines = [...lockerLines.map((line) => ({ ...line, packageIncluded: false as const })), ...expandedLockerLines];
-  const allCostumeLines = [...costumeLines.map((line) => ({ ...line, packageIncluded: false as const })), ...expandedCostumeLines];
+  type AllocatedLockerLine = { lockerId: string; amount: number; packageIncluded: boolean };
+  type AllocatedCostumeLine = { costumeItemId: string; durationHours: number; packageIncluded: boolean };
+  let allLockerLines: AllocatedLockerLine[] = [...lockerLines.map((line) => ({ ...line, packageIncluded: false }))];
+  let allCostumeLines: AllocatedCostumeLine[] = [...costumeLines.map((line) => ({ ...line, packageIncluded: false }))];
   const allRideLines = [...rideLines.map((line) => ({ ...line, packageIncluded: false as const })), ...expandedRideLines];
+
+  // Package included lockers/costumes are fulfilled by type/group, not a fixed unit.
+  // We allocate concrete units here so downstream validation + booking creation remains unchanged.
+  if (expandedLockerRequests.length > 0) {
+    const alreadyPicked = new Set(allLockerLines.map((line) => line.lockerId));
+    const refIds = Array.from(new Set(expandedLockerRequests.map((r) => r.lockerRefId)));
+    const refLockers = await db.locker.findMany({
+      where: { id: { in: refIds }, isActive: true },
+      select: { id: true, zoneId: true, size: true },
+    });
+    if (refLockers.length !== refIds.length) {
+      return NextResponse.json({ error: "One or more package lockers are invalid/inactive" }, { status: 400 });
+    }
+    const refMap = new Map(refLockers.map((l) => [l.id, l]));
+
+    const needByType = new Map<string, number>();
+    for (const req of expandedLockerRequests) {
+      const ref = refMap.get(req.lockerRefId)!;
+      const key = `${ref.zoneId}:${ref.size}`;
+      needByType.set(key, (needByType.get(key) ?? 0) + Math.max(1, req.quantity));
+    }
+
+    const allocated: Array<{ lockerId: string; amount: number; packageIncluded: true }> = [];
+    for (const [key, qty] of needByType.entries()) {
+      const [zoneId, size] = key.split(":");
+      const available = await db.locker.findMany({
+        where: { zoneId, size: size as any, isActive: true, status: "AVAILABLE", id: { notIn: Array.from(alreadyPicked) } },
+        orderBy: { number: "asc" },
+        take: qty,
+        select: { id: true },
+      });
+      if (available.length < qty) {
+        return NextResponse.json({ error: "Not enough lockers available for selected package." }, { status: 409 });
+      }
+      for (const row of available) {
+        alreadyPicked.add(row.id);
+        allocated.push({ lockerId: row.id, amount: 0, packageIncluded: true });
+      }
+    }
+
+    allLockerLines = [...allLockerLines, ...allocated];
+  }
+
+  if (expandedCostumeRequests.length > 0) {
+    const alreadyPicked = new Set(allCostumeLines.map((line) => line.costumeItemId));
+    const refIds = Array.from(new Set(expandedCostumeRequests.map((r) => r.costumeRefId)));
+    const refCostumes = await db.costumeItem.findMany({
+      where: { id: { in: refIds }, isActive: true },
+      select: { id: true, tagNumber: true },
+    });
+    if (refCostumes.length !== refIds.length) {
+      return NextResponse.json({ error: "One or more package costumes are invalid/inactive" }, { status: 400 });
+    }
+    const refMap = new Map(refCostumes.map((c) => [c.id, c]));
+
+    const needByGroup = new Map<string, { qty: number; durationHours: number }>();
+    for (const req of expandedCostumeRequests) {
+      const ref = refMap.get(req.costumeRefId)!;
+      const group = normalizeTagBase(ref.tagNumber);
+      const existing = needByGroup.get(group);
+      const addQty = Math.max(1, req.quantity);
+      if (!existing) {
+        needByGroup.set(group, { qty: addQty, durationHours: req.durationHours });
+      } else {
+        existing.qty += addQty;
+      }
+    }
+
+    const allocated: Array<{ costumeItemId: string; durationHours: number; packageIncluded: true }> = [];
+    for (const [group, meta] of needByGroup.entries()) {
+      const available = await db.costumeItem.findMany({
+        where: {
+          isActive: true,
+          status: "AVAILABLE",
+          id: { notIn: Array.from(alreadyPicked) },
+          OR: [{ tagNumber: group }, { tagNumber: { startsWith: `${group}-` } }],
+        },
+        orderBy: { tagNumber: "asc" },
+        take: meta.qty,
+        select: { id: true },
+      });
+      if (available.length < meta.qty) {
+        return NextResponse.json({ error: "Not enough costumes available for selected package." }, { status: 409 });
+      }
+      for (const row of available) {
+        alreadyPicked.add(row.id);
+        allocated.push({ costumeItemId: row.id, durationHours: meta.durationHours, packageIncluded: true });
+      }
+    }
+
+    allCostumeLines = [...allCostumeLines, ...allocated];
+  }
+
+  type TicketSnapshotLine = { ticketTypeId: string; quantity: number; unitPrice: number; gstRate: number };
+  let ticketSnapshot: TicketSnapshotLine[] | null = null;
+
+  // If this sale is based on a QUEUE request or an existing BOOKING, we must honor the
+  // stored price snapshot (so the amount shown to the guest matches what POS charges).
+  if (queueRequestId) {
+    const queue = await db.queueRequest.findFirst({
+      where: { id: queueRequestId, status: "PENDING" },
+      select: { id: true, items: true, visitDate: true },
+    });
+    if (!queue) {
+      requestLogger.warn({ queueRequestId }, "POS ticket sale rejected: queue not found");
+      return NextResponse.json({ error: "Queue request not found or already processed" }, { status: 400 });
+    }
+    const raw = queue.items as unknown as { tickets?: unknown };
+    const rawTickets = Array.isArray(raw?.tickets) ? (raw.tickets as any[]) : [];
+    ticketSnapshot = rawTickets
+      .map((t) => ({
+        ticketTypeId: String(t?.ticketTypeId ?? ""),
+        quantity: Number(t?.quantity ?? 0),
+        unitPrice: Number(t?.unitPrice ?? 0),
+        gstRate: Number(t?.gstRate ?? 0),
+      }))
+      .filter((t) => t.ticketTypeId && Number.isFinite(t.quantity) && t.quantity > 0);
+
+    // Queue is a single-day, no-payment intent: enforce visit date consistency.
+    const queueVisit = queue.visitDate.toISOString().slice(0, 10);
+    if (queueVisit !== visitDate) {
+      requestLogger.warn({ queueVisit, visitDate }, "POS ticket sale rejected: queue visit date mismatch");
+      return NextResponse.json({ error: "Queue visit date does not match selected visit date" }, { status: 400 });
+    }
+  } else if (sourceBookingId) {
+    const booking = await db.booking.findFirst({
+      where: { id: sourceBookingId },
+      select: {
+        id: true,
+        visitDate: true,
+        bookingTickets: { select: { ticketTypeId: true, quantity: true, unitPrice: true, gstRate: true } },
+      },
+    });
+    if (!booking) {
+      requestLogger.warn({ sourceBookingId }, "POS ticket sale rejected: booking snapshot not found");
+      return NextResponse.json({ error: "Booking not found" }, { status: 400 });
+    }
+    const bookingVisit = booking.visitDate.toISOString().slice(0, 10);
+    if (bookingVisit !== visitDate) {
+      requestLogger.warn({ bookingVisit, visitDate }, "POS ticket sale rejected: booking visit date mismatch");
+      return NextResponse.json({ error: "Booking visit date does not match selected visit date" }, { status: 400 });
+    }
+
+    // Only snapshot paid ticket lines; package entitlements can be stored as unitPrice=0.
+    ticketSnapshot = booking.bookingTickets
+      .map((bt) => ({
+        ticketTypeId: bt.ticketTypeId,
+        quantity: bt.quantity,
+        unitPrice: Number(bt.unitPrice),
+        gstRate: Number(bt.gstRate),
+      }))
+      .filter((t) => t.ticketTypeId && t.quantity > 0 && (t.unitPrice > 0 || t.gstRate > 0));
+  }
+
+  if (ticketSnapshot) {
+    const requested = new Map<string, number>();
+    for (const line of items) {
+      requested.set(line.ticketTypeId, (requested.get(line.ticketTypeId) ?? 0) + line.quantity);
+    }
+    const expected = new Map<string, number>();
+    for (const line of ticketSnapshot) {
+      expected.set(line.ticketTypeId, (expected.get(line.ticketTypeId) ?? 0) + line.quantity);
+    }
+    const requestedKeys = Array.from(requested.keys()).sort();
+    const expectedKeys = Array.from(expected.keys()).sort();
+    const sameKeys =
+      requestedKeys.length === expectedKeys.length &&
+      requestedKeys.every((key, idx) => key === expectedKeys[idx]);
+    const sameQty = sameKeys && requestedKeys.every((key) => requested.get(key) === expected.get(key));
+
+    if (!sameQty) {
+      requestLogger.warn(
+        { requested: Array.from(requested.entries()), expected: Array.from(expected.entries()) },
+        "POS ticket sale rejected: snapshot ticket mismatch",
+      );
+      return NextResponse.json(
+        { error: "Selected tickets do not match the imported booking/queue snapshot" },
+        { status: 400 },
+      );
+    }
+  }
 
   // Load ticket types
   const requestedTicketTypeIds = Array.from(new Set(allTicketItems.map((i) => i.ticketTypeId)));
   const ticketTypes = await db.ticketType.findMany({
     where: {
       id: { in: requestedTicketTypeIds },
-      isActive: true,
+      ...(ticketSnapshot ? {} : { isActive: true }),
       isDeleted: false,
     },
     select: {
@@ -357,25 +551,31 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  const snapshotByTicketTypeId = ticketSnapshot
+    ? new Map(ticketSnapshot.map((line) => [line.ticketTypeId, { unitPrice: line.unitPrice, gstRate: line.gstRate }] as const))
+    : null;
+
   // Build cart lines
   const cartLines: CartLineItem[] = items.map((item) => {
     const tt = ttMap.get(item.ticketTypeId)!;
+    const snap = snapshotByTicketTypeId?.get(tt.id) ?? null;
     return {
       ticketTypeId: tt.id,
       name: tt.name,
       quantity: item.quantity,
-      unitPrice: Number(tt.price),
-      gstRate: Number(tt.gstRate),
+      unitPrice: snap ? Number(snap.unitPrice) : Number(tt.price),
+      gstRate: snap ? Number(snap.gstRate) : Number(tt.gstRate),
     };
   });
   const ticketEntitlementLines: CartLineItem[] = allTicketItems.map((item) => {
     const tt = ttMap.get(item.ticketTypeId)!;
+    const snap = snapshotByTicketTypeId?.get(tt.id) ?? null;
     return {
       ticketTypeId: tt.id,
       name: tt.name,
       quantity: item.quantity,
-      unitPrice: Number(tt.price),
-      gstRate: Number(tt.gstRate),
+      unitPrice: snap ? Number(snap.unitPrice) : Number(tt.price),
+      gstRate: snap ? Number(snap.gstRate) : Number(tt.gstRate),
     };
   });
 

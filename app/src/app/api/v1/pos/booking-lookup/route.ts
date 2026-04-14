@@ -100,6 +100,7 @@ export async function GET(req: NextRequest) {
       guestMobile: b.guestMobile,
       visitDate: b.visitDate.toISOString().slice(0, 10),
       status: b.status,
+      discountAmount: Number(b.discountAmount),
       totalAmount: Number(b.totalAmount),
       paid,
       balance,

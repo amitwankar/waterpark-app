@@ -28,6 +28,7 @@ interface LookupBooking {
   guestName: string;
   guestMobile: string;
   visitDate: string;
+  discountAmount?: number;
   tickets: Array<{
     ticketTypeId: string;
     name: string;
@@ -142,6 +143,7 @@ export function TicketTerminal({
   const [receiptRef, setReceiptRef] = useState<string | null>(null);
   const [showCloser, setShowCloser] = useState(false);
   const [linkedBookingNumber, setLinkedBookingNumber] = useState<string | null>(null);
+  const [linkedBookingId, setLinkedBookingId] = useState<string | null>(null);
   const [linkedQueueRequestId, setLinkedQueueRequestId] = useState<string | null>(null);
   const [foodOptions, setFoodOptions] = useState<FoodOption[]>([]);
   const [lockerOptions, setLockerOptions] = useState<LockerOption[]>([]);
@@ -533,6 +535,7 @@ export function TicketTerminal({
           issueCouponValidityHours: issueCouponTemplateId ? Math.max(1, Number(issueCouponValidityHours || "24")) : undefined,
           couponCode: cart.coupon?.code,
           queueRequestId: linkedQueueRequestId || undefined,
+          sourceBookingId: linkedBookingId || undefined,
           paymentLines: cart.splitLines,
         }),
       });
@@ -547,6 +550,7 @@ export function TicketTerminal({
       setIdProofNumber("");
       setIdProofLabel("");
       setLinkedBookingNumber(null);
+      setLinkedBookingId(null);
       setLinkedQueueRequestId(null);
       setPackageLines([]);
       setFoodLines([]);
@@ -653,6 +657,7 @@ export function TicketTerminal({
       setRideLines([]);
       setManualDiscountAmount(0);
       setLinkedQueueRequestId(null);
+      setLinkedBookingId(null);
     }
 
     setGuestName((prev) => (mode === "replace" || !prev ? booking.guestName || "" : prev));
@@ -660,7 +665,15 @@ export function TicketTerminal({
     setVisitDate((prev) => (mode === "replace" || !prev ? (booking.visitDate || prev) : prev));
     setLinkedBookingNumber(booking.bookingNumber);
     setLinkedQueueRequestId(booking.sourceType === "QUEUE" ? booking.id : null);
-    setManualDiscountAmount(Number(booking.posPreload?.customDiscountAmount ?? 0));
+    setLinkedBookingId(booking.sourceType === "BOOKING" ? booking.id : null);
+
+    // BOOKING: honor stored booking discount snapshot (coupon + custom discount).
+    // QUEUE: discount lives only in posPreload (no payments yet).
+    setManualDiscountAmount(
+      booking.sourceType === "BOOKING"
+        ? Number(booking.discountAmount ?? 0)
+        : Number(booking.posPreload?.customDiscountAmount ?? 0),
+    );
 
     for (const ticket of booking.tickets) {
       for (let i = 0; i < ticket.quantity; i += 1) {

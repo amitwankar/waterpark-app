@@ -11,6 +11,7 @@ interface BookingResult {
   guestMobile: string;
   visitDate: string;
   status: string;
+  discountAmount?: number;
   totalAmount: number;
   paid: number;
   balance: number;
@@ -166,6 +167,9 @@ export function BookingLookup({ onSelect }: BookingLookupProps) {
                 </p>
               </div>
               <div className="text-right shrink-0">
+                {typeof b.discountAmount === "number" && b.discountAmount > 0 ? (
+                  <p className="text-[11px] text-gray-500">Discount: ₹{b.discountAmount.toFixed(2)}</p>
+                ) : null}
                 <p className="text-xs text-gray-500">Total: ₹{b.totalAmount.toFixed(2)}</p>
                 <p className="text-xs text-gray-500">Paid: ₹{b.paid.toFixed(2)}</p>
                 {b.balance > 0 ? (

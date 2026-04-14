@@ -7,6 +7,8 @@ import { requireSubRole } from "@/lib/session";
 const schema = z.object({
   bookingId: z.string().min(1),
   quantity: z.number().int().min(1).max(200),
+  depositAmount: z.number().min(0).max(10000000).optional(),
+  paymentMethod: z.enum(["CASH", "MANUAL_UPI", "CARD", "COMPLIMENTARY"]).optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -41,7 +43,16 @@ export async function POST(req: NextRequest) {
       const nextNotes = (row.notes ?? "PREBOOKED:PENDING").replace("PREBOOKED:PENDING", "PREBOOKED:DELIVERED");
       await db.costumeRental.update({
         where: { id: row.id },
-        data: { notes: nextNotes },
+        data: {
+          notes: nextNotes,
+          ...(typeof body.depositAmount === "number" && body.depositAmount > 0
+            ? {
+                depositAmount: body.depositAmount,
+                depositPaid: true,
+                paymentMethod: body.paymentMethod ?? "CASH",
+              }
+            : {}),
+        },
       });
     }
 

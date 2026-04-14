@@ -240,7 +240,12 @@ export function CostumeTerminal({
     const res = await fetch("/api/v1/costumes/rentals/deliver-booked", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ bookingId: selectedBooking.id, quantity }),
+      body: JSON.stringify({
+        bookingId: selectedBooking.id,
+        quantity,
+        depositAmount: Math.max(0, Number(depositAmount || 0)),
+        paymentMethod,
+      }),
     });
     const payload = (await res.json().catch(() => null)) as { error?: string } | null;
     if (!res.ok) {
