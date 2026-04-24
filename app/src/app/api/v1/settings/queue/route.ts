@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 import { getIp, logAudit } from "@/lib/audit";
+import { normalizeQueueVerificationMode } from "@/lib/queue-verification";
 import { requireAdmin } from "@/lib/session";
 import { getSettings, invalidateSettingsCache, maskConfig, upsertSettings } from "@/lib/settings";
 import { normalizeQueuePrefix, resetQueueSequence } from "@/lib/queue-public";
@@ -9,6 +10,7 @@ import { normalizeQueuePrefix, resetQueueSequence } from "@/lib/queue-public";
 const schema = z.object({
   queueLimitPerDay: z.coerce.number().int().min(0).max(100000),
   queuePrefix: z.string().trim().min(1).max(8),
+  queueVerificationMode: z.enum(["DISABLED", "EMAIL", "SMS", "BOTH"]),
 });
 
 export async function PUT(request: NextRequest) {
@@ -26,6 +28,7 @@ export async function PUT(request: NextRequest) {
   const updated = await upsertSettings({
     queueLimitPerDay: payload.queueLimitPerDay,
     queuePrefix: normalizeQueuePrefix(payload.queuePrefix),
+    queueVerificationMode: normalizeQueueVerificationMode(payload.queueVerificationMode),
   });
 
   invalidateSettingsCache();
@@ -39,6 +42,7 @@ export async function PUT(request: NextRequest) {
     oldValue: {
       queueLimitPerDay: Number((before as any).queueLimitPerDay ?? 0),
       queuePrefix: String((before as any).queuePrefix ?? "Q"),
+      queueVerificationMode: normalizeQueueVerificationMode((before as any).queueVerificationMode),
     },
     newValue: payload,
     ipAddress: getIp(request),
@@ -69,4 +73,3 @@ export async function POST(request: NextRequest) {
 
   return NextResponse.json({ success: true });
 }
-

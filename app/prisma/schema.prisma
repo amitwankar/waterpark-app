@@ -480,6 +480,7 @@ model ParkConfig {
   // Public Queue (no-payment pre-order at gate)
   queueLimitPerDay   Int    @default(0) @map("queue_limit_per_day") // 0 = unlimited
   queuePrefix        String @default("Q") @map("queue_prefix")
+  queueVerificationMode String @default("DISABLED") @map("queue_verification_mode")
   queueSeqDateKey    String @default("") @map("queue_seq_date_key") // YYYYMMDD
   queueSeqNumber     Int    @default(1) @map("queue_seq_number")
   queueSeqResetCount Int    @default(0) @map("queue_seq_reset_count")
@@ -663,6 +664,7 @@ model SalesPackageItem {
   ticketTypeId   String?         @map("ticket_type_id")
   rideId         String?         @map("ride_id")
   lockerId       String?         @map("locker_id")
+  lockerCategoryId String?       @map("locker_category_id")
   costumeItemId  String?         @map("costume_item_id")
   foodItemId     String?         @map("food_item_id")
   foodVariantId  String?         @map("food_variant_id")
@@ -674,6 +676,7 @@ model SalesPackageItem {
   ticketType  TicketType?      @relation("PackageTicketType", fields: [ticketTypeId], references: [id])
   ride        Ride?            @relation("PackageRide", fields: [rideId], references: [id])
   locker      Locker?          @relation("PackageLocker", fields: [lockerId], references: [id])
+  lockerCategory LockerCategory? @relation("PackageLockerCategory", fields: [lockerCategoryId], references: [id])
   costumeItem CostumeItem?     @relation("PackageCostumeItem", fields: [costumeItemId], references: [id])
   foodItem    FoodItem?        @relation("PackageFoodItem", fields: [foodItemId], references: [id])
   foodVariant FoodItemVariant? @relation("PackageFoodVariant", fields: [foodVariantId], references: [id])
@@ -683,6 +686,7 @@ model SalesPackageItem {
   @@index([ticketTypeId])
   @@index([rideId])
   @@index([lockerId])
+  @@index([lockerCategoryId])
   @@index([costumeItemId])
   @@index([foodItemId])
   @@index([foodVariantId])
@@ -733,6 +737,7 @@ model Booking {
   rideAccessLogs    RideAccessLog[]
   foodOrders        FoodOrder[]
   lockerAssignments LockerAssignment[]
+  lockerEntitlements BookingLockerEntitlement[]
   costumeRentals    CostumeRental[]
 
   @@index([userId])
@@ -1607,10 +1612,35 @@ model LockerZone {
   @@map("locker_zone")
 }
 
+/// Locker pricing and entitlement category used in booking/POS.
+/// Physical locker unit is selected later at locker counter.
+model LockerCategory {
+  id          String      @id @default(cuid())
+  name        String
+  code        String      @unique
+  description String?     @db.Text
+  size        LockerSize  @default(MEDIUM)
+  baseRate    Decimal     @default(299) @map("base_rate") @db.Decimal(12, 2)
+  gstRate     Decimal     @default(18) @map("gst_rate") @db.Decimal(5, 2)
+  sortOrder   Int         @default(0) @map("sort_order")
+  isActive    Boolean     @default(true) @map("is_active")
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
+
+  lockers             Locker[]
+  packageItems        SalesPackageItem[]         @relation("PackageLockerCategory")
+  bookingEntitlements BookingLockerEntitlement[]
+
+  @@index([isActive, sortOrder])
+  @@index([size])
+  @@map("locker_category")
+}
+
 /// Individual locker unit. Identified by a human-readable number (e.g. "A-042").
 model Locker {
   id       String       @id @default(cuid())
   zoneId   String       @map("zone_id")
+  categoryId String?    @map("category_id")
   number   String       @unique
   size     LockerSize   @default(MEDIUM)
   rate     Decimal      @default(299) @map("rate") @db.Decimal(12, 2)
@@ -1619,13 +1649,37 @@ model Locker {
   isActive Boolean      @default(true) @map("is_active")
 
   zone        LockerZone         @relation(fields: [zoneId], references: [id])
+  category    LockerCategory?    @relation(fields: [categoryId], references: [id])
   assignments LockerAssignment[]
   packageItems SalesPackageItem[] @relation("PackageLocker")
 
   @@index([zoneId])
+  @@index([categoryId])
   @@index([status])
   @@index([zoneId, status])
   @@map("locker")
+}
+
+/// Locker purchase entitlements from booking/POS.
+/// Units are assigned later at locker desk.
+model BookingLockerEntitlement {
+  id                String   @id @default(cuid())
+  bookingId         String   @map("booking_id")
+  lockerCategoryId  String   @map("locker_category_id")
+  quantity          Int      @default(1)
+  deliveredQuantity Int      @default(0) @map("delivered_quantity")
+  unitBasePrice     Decimal  @map("unit_base_price") @db.Decimal(12, 2)
+  unitGstRate       Decimal  @map("unit_gst_rate") @db.Decimal(5, 2)
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  booking  Booking        @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  category LockerCategory @relation(fields: [lockerCategoryId], references: [id])
+
+  @@index([bookingId])
+  @@index([lockerCategoryId])
+  @@index([bookingId, deliveredQuantity])
+  @@map("booking_locker_entitlement")
 }
 
 /// A single locker rental assignment.

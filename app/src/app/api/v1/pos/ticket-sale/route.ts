@@ -40,8 +40,10 @@ const foodLineSchema = z.object({
 });
 
 const lockerLineSchema = z.object({
-  lockerId: z.string().min(1),
-  amount: z.number().positive(),
+  lockerCategoryId: z.string().min(1).optional(),
+  lockerId: z.string().min(1).optional(), // legacy fallback
+  quantity: z.number().int().min(1).max(200).optional(),
+  amount: z.number().nonnegative().optional(), // legacy fallback
 });
 
 const costumeLineSchema = z.object({
@@ -288,7 +290,7 @@ export async function POST(req: NextRequest) {
   const packageMap = new Map(packages.map((pkg) => [pkg.id, pkg]));
   const expandedTicketLines: Array<{ ticketTypeId: string; quantity: number }> = [];
   const expandedFoodLines: Array<{ foodItemId: string; foodVariantId?: string; quantity: number; packageIncluded: true }> = [];
-  const expandedLockerRequests: Array<{ lockerRefId: string; quantity: number; packageIncluded: true }> = [];
+  const expandedLockerRequests: Array<{ lockerCategoryRefId: string; quantity: number; packageIncluded: true }> = [];
   const expandedCostumeRequests: Array<{ costumeRefId: string; quantity: number; durationHours: number; packageIncluded: true }> = [];
   const expandedRideLines: Array<{ rideId: string; quantity: number; packageIncluded: true }> = [];
   const packageCartLines: CartLineItem[] = packageLines.map((line) => {
@@ -301,8 +303,12 @@ export async function POST(req: NextRequest) {
       if (item.itemType === "RIDE" && item.rideId) {
         expandedRideLines.push({ rideId: item.rideId, quantity, packageIncluded: true });
       }
-      if (item.itemType === "LOCKER" && item.lockerId) {
-        expandedLockerRequests.push({ lockerRefId: item.lockerId, quantity, packageIncluded: true });
+      if (item.itemType === "LOCKER" && (item.lockerCategoryId || item.lockerId)) {
+        expandedLockerRequests.push({
+          lockerCategoryRefId: item.lockerCategoryId ?? item.lockerId!,
+          quantity,
+          packageIncluded: true,
+        });
       }
       if (item.itemType === "COSTUME" && item.costumeItemId) {
         expandedCostumeRequests.push({ costumeRefId: item.costumeItemId, quantity, durationHours: 4, packageIncluded: true });
@@ -326,52 +332,27 @@ export async function POST(req: NextRequest) {
   });
   const allTicketItems = [...items, ...expandedTicketLines];
   const allFoodLines = [...foodLines.map((line) => ({ ...line, packageIncluded: false as const })), ...expandedFoodLines];
-  type AllocatedLockerLine = { lockerId: string; amount: number; packageIncluded: boolean };
+  type AllocatedLockerLine = { lockerCategoryId: string; quantity: number; packageIncluded: boolean };
   type AllocatedCostumeLine = { costumeItemId: string; durationHours: number; packageIncluded: boolean };
-  let allLockerLines: AllocatedLockerLine[] = [...lockerLines.map((line) => ({ ...line, packageIncluded: false }))];
+  let allLockerLines: AllocatedLockerLine[] = lockerLines.map((line) => ({
+    lockerCategoryId: (line.lockerCategoryId ?? line.lockerId ?? "").trim(),
+    quantity: Math.max(1, Number(line.quantity ?? 1)),
+    packageIncluded: false,
+  })).filter((line) => Boolean(line.lockerCategoryId));
   let allCostumeLines: AllocatedCostumeLine[] = [...costumeLines.map((line) => ({ ...line, packageIncluded: false }))];
   const allRideLines = [...rideLines.map((line) => ({ ...line, packageIncluded: false as const })), ...expandedRideLines];
 
-  // Package included lockers/costumes are fulfilled by type/group, not a fixed unit.
-  // We allocate concrete units here so downstream validation + booking creation remains unchanged.
+  // Package included lockers are now tracked as entitlements by category.
+  // Physical locker unit will be assigned later at locker counter.
   if (expandedLockerRequests.length > 0) {
-    const alreadyPicked = new Set(allLockerLines.map((line) => line.lockerId));
-    const refIds = Array.from(new Set(expandedLockerRequests.map((r) => r.lockerRefId)));
-    const refLockers = await db.locker.findMany({
-      where: { id: { in: refIds }, isActive: true },
-      select: { id: true, zoneId: true, size: true },
-    });
-    if (refLockers.length !== refIds.length) {
-      return NextResponse.json({ error: "One or more package lockers are invalid/inactive" }, { status: 400 });
-    }
-    const refMap = new Map(refLockers.map((l) => [l.id, l]));
-
-    const needByType = new Map<string, number>();
-    for (const req of expandedLockerRequests) {
-      const ref = refMap.get(req.lockerRefId)!;
-      const key = `${ref.zoneId}:${ref.size}`;
-      needByType.set(key, (needByType.get(key) ?? 0) + Math.max(1, req.quantity));
-    }
-
-    const allocated: Array<{ lockerId: string; amount: number; packageIncluded: true }> = [];
-    for (const [key, qty] of needByType.entries()) {
-      const [zoneId, size] = key.split(":");
-      const available = await db.locker.findMany({
-        where: { zoneId, size: size as any, isActive: true, status: "AVAILABLE", id: { notIn: Array.from(alreadyPicked) } },
-        orderBy: { number: "asc" },
-        take: qty,
-        select: { id: true },
-      });
-      if (available.length < qty) {
-        return NextResponse.json({ error: "Not enough lockers available for selected package." }, { status: 409 });
-      }
-      for (const row of available) {
-        alreadyPicked.add(row.id);
-        allocated.push({ lockerId: row.id, amount: 0, packageIncluded: true });
-      }
-    }
-
-    allLockerLines = [...allLockerLines, ...allocated];
+    allLockerLines = [
+      ...allLockerLines,
+      ...expandedLockerRequests.map((item) => ({
+        lockerCategoryId: item.lockerCategoryRefId,
+        quantity: Math.max(1, item.quantity),
+        packageIncluded: true as const,
+      })),
+    ];
   }
 
   if (expandedCostumeRequests.length > 0) {
@@ -426,6 +407,7 @@ export async function POST(req: NextRequest) {
 
   type TicketSnapshotLine = { ticketTypeId: string; quantity: number; unitPrice: number; gstRate: number };
   let ticketSnapshot: TicketSnapshotLine[] | null = null;
+  let sourceBookingPaidAmount = 0;
 
   // If this sale is based on a QUEUE request or an existing BOOKING, we must honor the
   // stored price snapshot (so the amount shown to the guest matches what POS charges).
@@ -462,6 +444,10 @@ export async function POST(req: NextRequest) {
         id: true,
         visitDate: true,
         bookingTickets: { select: { ticketTypeId: true, quantity: true, unitPrice: true, gstRate: true } },
+        transactions: {
+          where: { status: "PAID" },
+          select: { amount: true },
+        },
       },
     });
     if (!booking) {
@@ -473,6 +459,8 @@ export async function POST(req: NextRequest) {
       requestLogger.warn({ bookingVisit, visitDate }, "POS ticket sale rejected: booking visit date mismatch");
       return NextResponse.json({ error: "Booking visit date does not match selected visit date" }, { status: 400 });
     }
+
+    sourceBookingPaidAmount = booking.transactions.reduce((sum, row) => sum + Number(row.amount), 0);
 
     // Only snapshot paid ticket lines; package entitlements can be stored as unitPrice=0.
     ticketSnapshot = booking.bookingTickets
@@ -635,11 +623,11 @@ export async function POST(req: NextRequest) {
   const selectedFoodVariantIds = Array.from(
     new Set(allFoodLines.map((line) => line.foodVariantId).filter((value): value is string => Boolean(value))),
   );
-  const selectedLockerIds = allLockerLines.map((line) => line.lockerId);
+  let selectedLockerCategoryIds = Array.from(new Set(allLockerLines.map((line) => line.lockerCategoryId)));
   const selectedCostumeIds = allCostumeLines.map((line) => line.costumeItemId);
   const selectedRideIds = Array.from(new Set(allRideLines.map((line) => line.rideId)));
 
-  const [foodItems, foodVariants, lockers, costumeItems, rides, rideTicketTypes, defaultFoodOutlet, parkConfig] = await Promise.all([
+  const [foodItems, foodVariants, lockerCategories, legacyLockers, costumeItems, rides, rideTicketTypes, defaultFoodOutlet, parkConfig] = await Promise.all([
     selectedFoodIds.length > 0
       ? db.foodItem.findMany({
           where: { id: { in: selectedFoodIds }, isDeleted: false, isAvailable: true },
@@ -652,10 +640,16 @@ export async function POST(req: NextRequest) {
           select: { id: true, foodItemId: true, name: true, price: true },
         })
       : Promise.resolve([]),
-    selectedLockerIds.length > 0
+    selectedLockerCategoryIds.length > 0
+      ? db.lockerCategory.findMany({
+        where: { id: { in: selectedLockerCategoryIds }, isActive: true },
+        select: { id: true, name: true, code: true, baseRate: true, gstRate: true },
+      })
+      : Promise.resolve([]),
+    selectedLockerCategoryIds.length > 0
       ? db.locker.findMany({
-        where: { id: { in: selectedLockerIds }, isActive: true, status: "AVAILABLE" },
-        select: { id: true, number: true, rate: true, gstRate: true },
+        where: { id: { in: selectedLockerCategoryIds }, isActive: true },
+        select: { id: true, number: true, categoryId: true, rate: true, gstRate: true },
       })
       : Promise.resolve([]),
     selectedCostumeIds.length > 0
@@ -689,9 +683,32 @@ export async function POST(req: NextRequest) {
     requestLogger.warn("POS ticket sale rejected: unavailable food item in cart");
     return NextResponse.json({ error: "One or more selected food items are unavailable" }, { status: 400 });
   }
-  if (allLockerLines.length > 0 && lockers.length !== allLockerLines.length) {
-    requestLogger.warn("POS ticket sale rejected: unavailable locker in cart");
-    return NextResponse.json({ error: "One or more selected lockers are unavailable" }, { status: 400 });
+  const lockerCategoryMap = new Map(lockerCategories.map((item) => [item.id, item]));
+  const legacyToCategoryMap = new Map<string, string>();
+  for (const legacy of legacyLockers) {
+    if (legacy.categoryId && lockerCategoryMap.has(legacy.categoryId)) {
+      legacyToCategoryMap.set(legacy.id, legacy.categoryId);
+      continue;
+    }
+    if (!lockerCategoryMap.has(legacy.id)) {
+      lockerCategoryMap.set(legacy.id, {
+        id: legacy.id,
+        name: legacy.number,
+        code: legacy.number,
+        baseRate: legacy.rate,
+        gstRate: legacy.gstRate ?? 0,
+      });
+      legacyToCategoryMap.set(legacy.id, legacy.id);
+    }
+  }
+  allLockerLines = allLockerLines.map((line) => ({
+    ...line,
+    lockerCategoryId: legacyToCategoryMap.get(line.lockerCategoryId) ?? line.lockerCategoryId,
+  }));
+  selectedLockerCategoryIds = Array.from(new Set(allLockerLines.map((line) => line.lockerCategoryId)));
+  if (allLockerLines.length > 0 && selectedLockerCategoryIds.some((id) => !lockerCategoryMap.has(id))) {
+    requestLogger.warn("POS ticket sale rejected: unavailable locker category in cart");
+    return NextResponse.json({ error: "One or more selected locker categories are unavailable" }, { status: 400 });
   }
   if (allCostumeLines.length > 0 && costumeItems.length !== allCostumeLines.length) {
     requestLogger.warn("POS ticket sale rejected: unavailable costume in cart");
@@ -707,7 +724,7 @@ export async function POST(req: NextRequest) {
 
   const foodMap = new Map(foodItems.map((item) => [item.id, item]));
   const foodVariantMap = new Map(foodVariants.map((variant) => [variant.id, variant]));
-  const lockerMap = new Map(lockers.map((locker) => [locker.id, locker]));
+  const lockerMap = lockerCategoryMap;
   const costumeMap = new Map(costumeItems.map((item) => [item.id, item]));
   const rideMap = new Map(rides.map((ride) => [ride.id, ride]));
   const rideTicketMap = new Map(rideTicketTypes.map((ticket) => [ticket.rideId!, ticket]));
@@ -750,15 +767,15 @@ export async function POST(req: NextRequest) {
   }, 0);
   const lockerGstRate = Number(parkConfig?.lockerGstRate ?? 0);
   const lockerSubtotal = allLockerLines.reduce((sum, line) => {
-    const locker = lockerMap.get(line.lockerId);
+    const locker = lockerMap.get(line.lockerCategoryId);
     if (!locker) return sum;
-    return sum + (line.packageIncluded ? 0 : Number(locker.rate ?? 0));
+    return sum + (line.packageIncluded ? 0 : Number(locker.baseRate ?? 0) * Math.max(1, line.quantity));
   }, 0);
   const lockerGst = allLockerLines.reduce((sum, line) => {
-    const locker = lockerMap.get(line.lockerId);
+    const locker = lockerMap.get(line.lockerCategoryId);
     if (!locker) return sum;
-    const gstRate = Number((locker as unknown as Record<string, unknown>).gstRate ?? lockerGstRate);
-    return sum + (line.packageIncluded ? 0 : Number(locker.rate ?? 0) * (gstRate / 100));
+    const gstRate = Number(locker.gstRate ?? lockerGstRate);
+    return sum + (line.packageIncluded ? 0 : Number(locker.baseRate ?? 0) * Math.max(1, line.quantity) * (gstRate / 100));
   }, 0);
   const lockerTotal = lockerSubtotal + lockerGst;
   const costumeSubtotal = allCostumeLines.reduce((sum, line) => {
@@ -791,9 +808,11 @@ export async function POST(req: NextRequest) {
   const grossGrandTotal = Math.round((totals.totalAmount + foodTotal + lockerTotal + costumeTotal + rideTotal) * 100) / 100;
   const appliedManualDiscount = Math.min(Math.max(0, Number(manualDiscountAmount || 0)), grossGrandTotal);
   const grandTotal = Math.round((grossGrandTotal - appliedManualDiscount) * 100) / 100;
+  const carriedForwardPaid = sourceBookingId ? Math.max(0, Math.min(sourceBookingPaidAmount, grandTotal)) : 0;
+  const chargeableGrandTotal = Math.round((grandTotal - carriedForwardPaid) * 100) / 100;
 
   // Validate split payment
-  const splitCheck = validateSplitPayment(paymentLines as SplitPaymentLine[], grandTotal);
+  const splitCheck = validateSplitPayment(paymentLines as SplitPaymentLine[], chargeableGrandTotal);
   if (!splitCheck.valid) {
     requestLogger.warn({ reason: splitCheck.reason }, "POS ticket sale rejected: invalid split payment");
     return NextResponse.json({ error: splitCheck.reason }, { status: 400 });
@@ -922,8 +941,8 @@ export async function POST(req: NextRequest) {
         idProofLabel: idProofType === "OTHER" ? idProofLabel?.trim() || null : null,
         subtotal: totals.subtotal + addOnSubtotal,
         gstAmount: totals.gstAmount + addOnGst,
-        discountAmount: totals.discountAmount + appliedManualDiscount,
-        totalAmount: grandTotal,
+        discountAmount: totals.discountAmount + appliedManualDiscount + carriedForwardPaid,
+        totalAmount: chargeableGrandTotal,
         status: "CONFIRMED",
         couponId,
         notes,
@@ -1037,14 +1056,14 @@ export async function POST(req: NextRequest) {
       update: {
         name: guestName,
         totalVisits: { increment: 1 },
-        totalSpend: { increment: grandTotal },
+        totalSpend: { increment: chargeableGrandTotal },
         lastVisitDate: new Date(visitDate),
       },
       create: {
         mobile: guestMobile,
         name: guestName,
         totalVisits: 1,
-        totalSpend: grandTotal,
+        totalSpend: chargeableGrandTotal,
         lastVisitDate: new Date(visitDate),
       },
     });
@@ -1093,30 +1112,30 @@ export async function POST(req: NextRequest) {
     }
 
     if (allLockerLines.length > 0) {
-      const dueAt = new Date();
-      dueAt.setHours(23, 59, 59, 999);
+      const grouped = new Map<string, { quantity: number; packageIncluded: boolean }>();
       for (const line of allLockerLines) {
-        const locker = lockerMap.get(line.lockerId)!;
-        const baseAmount = Number(locker.rate ?? 0);
-        const resolvedGstRate = Number((locker as unknown as Record<string, unknown>).gstRate ?? lockerGstRate);
-        const totalAmount = line.packageIncluded ? 0 : Math.round(baseAmount * (1 + resolvedGstRate / 100) * 100) / 100;
-        await tx.lockerAssignment.create({
+        const key = line.lockerCategoryId;
+        if (!key) continue;
+        const current = grouped.get(key);
+        if (!current) {
+          grouped.set(key, { quantity: Math.max(1, line.quantity), packageIncluded: line.packageIncluded });
+        } else {
+          current.quantity += Math.max(1, line.quantity);
+          current.packageIncluded = current.packageIncluded && line.packageIncluded;
+        }
+      }
+      for (const [lockerCategoryId, meta] of grouped.entries()) {
+        const category = lockerMap.get(lockerCategoryId);
+        if (!category) continue;
+        await tx.bookingLockerEntitlement.create({
           data: {
-            lockerId: locker.id,
             bookingId: booking.id,
-            guestName,
-            guestMobile,
-            assignedById: user!.id,
-            durationType: "FULL_DAY",
-            dueAt,
-            amount: totalAmount,
-            paymentMethod: paymentLines[0]?.method ?? "CASH",
-            notes: "PREBOOKED:PENDING",
+            lockerCategoryId,
+            quantity: meta.quantity,
+            deliveredQuantity: 0,
+            unitBasePrice: meta.packageIncluded ? 0 : Number(category.baseRate ?? 0),
+            unitGstRate: meta.packageIncluded ? 0 : Number(category.gstRate ?? lockerGstRate),
           },
-        });
-        await tx.locker.update({
-          where: { id: locker.id },
-          data: { status: "ASSIGNED" },
         });
       }
     }
@@ -1263,7 +1282,7 @@ export async function POST(req: NextRequest) {
     entityId: result.id,
     newValue: {
       bookingNumber: result.bookingNumber,
-      totalAmount: grandTotal,
+      totalAmount: chargeableGrandTotal,
       sessionId,
     },
     ipAddress: getIp(req),
@@ -1284,7 +1303,7 @@ export async function POST(req: NextRequest) {
         quantity: line.quantity,
         unitPrice: line.unitPrice,
       })),
-      totalAmount: grandTotal,
+      totalAmount: chargeableGrandTotal,
     }).catch(() => { /* non-fatal */ });
   }
 
@@ -1303,7 +1322,9 @@ export async function POST(req: NextRequest) {
         gst: Math.round(addOnGst * 100) / 100,
       },
       manualDiscountAmount: Math.round(appliedManualDiscount * 100) / 100,
-      grandTotal,
+      grandTotal: chargeableGrandTotal,
+      sourceBookingPaidAmount: Math.round(carriedForwardPaid * 100) / 100,
+      originalGrandTotal: grandTotal,
     },
     issuedCoupon,
   };
@@ -1315,7 +1336,7 @@ export async function POST(req: NextRequest) {
     {
       bookingId: result.id,
       bookingNumber: result.bookingNumber,
-      grandTotal,
+      grandTotal: chargeableGrandTotal,
     },
     "POS ticket sale completed",
   );

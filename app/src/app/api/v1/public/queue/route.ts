@@ -2,7 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 import { db } from "@/lib/db";
+import { sendMail } from "@/lib/mailer";
+import { consumeQueueOtpProof } from "@/lib/queue-otp";
 import { allocateNextQueueCode, getIstTodayDateOnly } from "@/lib/queue-public";
+import {
+  needsEmailVerification,
+  needsSmsVerification,
+  normalizeQueueEmail,
+  normalizeQueueMobile,
+  normalizeQueueVerificationMode,
+} from "@/lib/queue-verification";
 import { checkRateLimit } from "@/lib/rate-limit";
 
 const toInt = z.coerce.number().int();
@@ -30,7 +39,7 @@ const foodLineSchema = z.object({
 });
 
 const lockerLineSchema = z.object({
-  lockerId: z.string().min(1),
+  lockerCategoryId: z.string().min(1),
   quantity: toInt.min(1).max(50),
 });
 
@@ -49,6 +58,8 @@ const schema = z
     guestName: z.string().trim().min(2).max(120),
     guestMobile: z.string().trim().regex(/^[6-9]\d{9}$/).optional().or(z.literal("")),
     guestEmail: z.string().trim().email().max(255).optional().or(z.literal("")),
+    emailOtpProofToken: z.string().trim().min(1).optional(),
+    smsOtpProofToken: z.string().trim().min(1).optional(),
     participants: z.array(participantSchema).max(200).optional(),
     ticketLines: z.array(ticketLineSchema).min(1).max(20),
     packageLines: z.array(packageLineSchema).max(50).optional(),
@@ -74,6 +85,14 @@ function normalizeTagBase(tagNumber: string): string {
   return tagNumber.trim().toUpperCase().replace(/-\d{3}$/i, "");
 }
 
+type QueueSlipLine = {
+  section: string;
+  label: string;
+  quantity: number;
+  unitPrice: number;
+  lineTotal: number;
+};
+
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const ip = getClientIp(request);
   const rateLimit = await checkRateLimit({
@@ -96,6 +115,48 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   const payload = parsed.data;
+  const guestEmail = normalizeQueueEmail(payload.guestEmail);
+  const guestMobile = normalizeQueueMobile(payload.guestMobile);
+
+  const config = await db.parkConfig.findFirst({
+    select: { queueVerificationMode: true },
+  });
+  const verificationMode = normalizeQueueVerificationMode(config?.queueVerificationMode);
+
+  if (needsEmailVerification(verificationMode)) {
+    if (!guestEmail) {
+      return NextResponse.json({ message: "Email verification is required for queue booking" }, { status: 400 });
+    }
+    if (!payload.emailOtpProofToken) {
+      return NextResponse.json({ message: "Email OTP verification is required" }, { status: 401 });
+    }
+    const isEmailProofValid = await consumeQueueOtpProof({
+      channel: "email",
+      value: guestEmail,
+      proofToken: payload.emailOtpProofToken,
+    });
+    if (!isEmailProofValid) {
+      return NextResponse.json({ message: "Email verification proof expired or invalid" }, { status: 401 });
+    }
+  }
+
+  if (needsSmsVerification(verificationMode)) {
+    if (!guestMobile) {
+      return NextResponse.json({ message: "SMS verification is required for queue booking" }, { status: 400 });
+    }
+    if (!payload.smsOtpProofToken) {
+      return NextResponse.json({ message: "SMS OTP verification is required" }, { status: 401 });
+    }
+    const isSmsProofValid = await consumeQueueOtpProof({
+      channel: "sms",
+      value: guestMobile,
+      proofToken: payload.smsOtpProofToken,
+    });
+    if (!isSmsProofValid) {
+      return NextResponse.json({ message: "SMS verification proof expired or invalid" }, { status: 401 });
+    }
+  }
+
   const ticketLines = payload.ticketLines;
   const packageLines = payload.packageLines ?? [];
   const foodLines = payload.foodLines ?? [];
@@ -103,7 +164,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const costumeLines = payload.costumeLines ?? [];
   const rideLines = payload.rideLines ?? [];
 
-  const [ticketTypes, packages, foodItems, foodVariants, lockers, costumeItems, rides] = await Promise.all([
+  const [ticketTypes, packages, foodItems, foodVariants, lockerCategories, costumeItems, rides] = await Promise.all([
     db.ticketType.findMany({
       where: { id: { in: Array.from(new Set(ticketLines.map((l) => l.ticketTypeId))) }, isDeleted: false, isActive: true },
       select: { id: true, name: true, price: true, gstRate: true },
@@ -127,9 +188,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         })
       : Promise.resolve([]),
     lockerLines.length
-      ? db.locker.findMany({
-          where: { id: { in: Array.from(new Set(lockerLines.map((l) => l.lockerId))) }, isActive: true },
-          select: { id: true, rate: true, gstRate: true },
+      ? db.lockerCategory.findMany({
+          where: { id: { in: Array.from(new Set(lockerLines.map((l) => l.lockerCategoryId))) }, isActive: true },
+          select: { id: true, name: true, code: true, baseRate: true, gstRate: true },
         })
       : Promise.resolve([]),
     costumeLines.length
@@ -167,9 +228,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       }
     }
   }
-  const lockerMap = new Map(lockers.map((l) => [l.id, l]));
-  if (lockers.length !== Array.from(new Set(lockerLines.map((l) => l.lockerId))).length) {
-    return NextResponse.json({ message: "One or more selected lockers are invalid" }, { status: 400 });
+  const lockerMap = new Map(lockerCategories.map((l) => [l.id, l]));
+  if (lockerCategories.length !== Array.from(new Set(lockerLines.map((l) => l.lockerCategoryId))).length) {
+    return NextResponse.json({ message: "One or more selected locker categories are invalid" }, { status: 400 });
   }
   const rideMap = new Map(rides.map((r) => [r.id, r]));
   if (rides.length !== Array.from(new Set(rideLines.map((l) => l.rideId))).length) {
@@ -226,10 +287,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return sum + unitPrice * line.quantity * (Number(item.gstRate ?? 0) / 100);
   }, 0);
 
-  const lockerSubtotal = lockerLines.reduce((sum, line) => sum + Number(lockerMap.get(line.lockerId)!.rate) * line.quantity, 0);
+  const lockerSubtotal = lockerLines.reduce((sum, line) => sum + Number(lockerMap.get(line.lockerCategoryId)!.baseRate) * line.quantity, 0);
   const lockerGstAmount = lockerLines.reduce((sum, line) => {
-    const locker = lockerMap.get(line.lockerId)!;
-    return sum + Number(locker.rate) * line.quantity * (Number(locker.gstRate ?? 0) / 100);
+    const locker = lockerMap.get(line.lockerCategoryId)!;
+    return sum + Number(locker.baseRate) * line.quantity * (Number(locker.gstRate ?? 0) / 100);
   }, 0);
 
   const costumeSubtotal = costumeLines.reduce((sum, line) => sum + costumeGroupMap.get(line.costumeItemId)!.unitPrice * line.quantity, 0);
@@ -277,11 +338,83 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     posPreload: {
       packageLines: packageLines.map((line) => ({ packageId: line.packageId, quantity: line.quantity })),
       foodLines: foodLines.map((line) => ({ foodItemId: line.foodItemId, foodVariantId: line.foodVariantId, quantity: line.quantity })),
-      lockerLines: lockerLines.map((line) => ({ lockerId: line.lockerId, quantity: line.quantity })),
+      lockerLines: lockerLines.map((line) => ({
+        lockerCategoryId: line.lockerCategoryId,
+        lockerId: line.lockerCategoryId, // legacy consumer fallback
+        quantity: line.quantity,
+      })),
       costumeLines: costumeLines.map((line) => ({ costumeItemId: line.costumeItemId, quantity: line.quantity })),
       rideLines: rideLines.map((line) => ({ rideId: line.rideId, quantity: line.quantity })),
     },
   };
+  const slipLines: QueueSlipLine[] = [
+    ...ticketLines.map((line) => {
+      const ticket = ticketMap.get(line.ticketTypeId)!;
+      const unitPrice = Number(ticket.price);
+      return {
+        section: "Tickets",
+        label: ticket.name,
+        quantity: line.quantity,
+        unitPrice,
+        lineTotal: roundMoney(unitPrice * line.quantity),
+      };
+    }),
+    ...packageLines.map((line) => {
+      const pkg = packageMap.get(line.packageId)!;
+      const unitPrice = Number(pkg.salePrice);
+      return {
+        section: "Packages",
+        label: pkg.name,
+        quantity: line.quantity,
+        unitPrice,
+        lineTotal: roundMoney(unitPrice * line.quantity),
+      };
+    }),
+    ...foodLines.map((line) => {
+      const item = foodItemMap.get(line.foodItemId)!;
+      const variant = line.foodVariantId ? variantMap.get(line.foodVariantId) : null;
+      const unitPrice = variant ? Number(variant.price) : Number(item.price);
+      return {
+        section: "Food",
+        label: variant ? `${item.name} (${variant.name})` : item.name,
+        quantity: line.quantity,
+        unitPrice,
+        lineTotal: roundMoney(unitPrice * line.quantity),
+      };
+    }),
+    ...lockerLines.map((line) => {
+      const locker = lockerMap.get(line.lockerCategoryId)!;
+      const unitPrice = Number(locker.baseRate);
+      return {
+        section: "Lockers",
+        label: `${locker.name} (${locker.code})`,
+        quantity: line.quantity,
+        unitPrice,
+        lineTotal: roundMoney(unitPrice * line.quantity),
+      };
+    }),
+    ...costumeLines.map((line) => {
+      const costume = costumeGroupMap.get(line.costumeItemId)!;
+      return {
+        section: "Costumes",
+        label: costume.name,
+        quantity: line.quantity,
+        unitPrice: costume.unitPrice,
+        lineTotal: roundMoney(costume.unitPrice * line.quantity),
+      };
+    }),
+    ...rideLines.map((line) => {
+      const ride = rideMap.get(line.rideId)!;
+      const unitPrice = Number(ride.entryFee ?? 0);
+      return {
+        section: "Rides",
+        label: ride.name,
+        quantity: line.quantity,
+        unitPrice,
+        lineTotal: roundMoney(unitPrice * line.quantity),
+      };
+    }),
+  ];
 
   const participants = payload.participants ?? [];
 
@@ -291,8 +424,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       status: "PENDING",
       visitDate: visitDate ?? getIstTodayDateOnly(),
       guestName: payload.guestName,
-      guestMobile: payload.guestMobile ? payload.guestMobile : null,
-      guestEmail: payload.guestEmail ? payload.guestEmail : null,
+      guestMobile,
+      guestEmail,
       participantCount: participants.length,
       participants: participants.length ? (participants as unknown as object) : undefined,
       items: items as unknown as object,
@@ -304,11 +437,67 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     select: { id: true, queueCode: true, totalAmount: true },
   });
 
+  if (guestEmail) {
+    const slipRows = slipLines
+      .map(
+        (line) =>
+          `<tr>
+             <td style="padding:6px 8px;border-bottom:1px solid #f4f4f5;">${line.section}</td>
+             <td style="padding:6px 8px;border-bottom:1px solid #f4f4f5;">${line.label}</td>
+             <td style="padding:6px 8px;border-bottom:1px solid #f4f4f5;text-align:center;">${line.quantity}</td>
+             <td style="padding:6px 8px;border-bottom:1px solid #f4f4f5;text-align:right;">₹${line.lineTotal.toFixed(2)}</td>
+           </tr>`,
+      )
+      .join("");
+
+    const html = `
+      <div style="font-family:Arial,sans-serif;background:#f8fafc;padding:24px;">
+        <div style="max-width:700px;margin:0 auto;background:#ffffff;border-radius:12px;border:1px solid #e4e4e7;padding:24px;">
+          <h2 style="margin:0 0 12px;color:#0f766e;">Queue Booking Slip</h2>
+          <p><strong>Queue ID:</strong> ${created.queueCode}</p>
+          <p><strong>Guest:</strong> ${payload.guestName}</p>
+          <p><strong>Visit Date:</strong> ${visitDate.toISOString().slice(0, 10)}</p>
+          <table style="width:100%;border-collapse:collapse;margin-top:12px;font-size:13px;">
+            <thead>
+              <tr style="background:#f4f4f5;">
+                <th style="padding:6px 8px;text-align:left;">Section</th>
+                <th style="padding:6px 8px;text-align:left;">Item</th>
+                <th style="padding:6px 8px;text-align:center;">Qty</th>
+                <th style="padding:6px 8px;text-align:right;">Amount</th>
+              </tr>
+            </thead>
+            <tbody>${slipRows}</tbody>
+          </table>
+          <p style="margin-top:12px;"><strong>Subtotal:</strong> ₹${subtotal.toFixed(2)}</p>
+          <p><strong>GST:</strong> ₹${gstAmount.toFixed(2)}</p>
+          <p><strong>Total:</strong> ₹${totalAmount.toFixed(2)}</p>
+          <p style="margin-top:16px;color:#71717a;">Show this queue ID at ticket counter for payment and final ticket.</p>
+        </div>
+      </div>
+    `;
+
+    void sendMail({
+      to: guestEmail,
+      subject: `Queue booking created - ${created.queueCode}`,
+      html,
+      text: `Queue ID: ${created.queueCode}\nGuest: ${payload.guestName}\nVisit Date: ${visitDate
+        .toISOString()
+        .slice(0, 10)}\nTotal: ₹${totalAmount.toFixed(2)}`,
+    }).catch(() => undefined);
+  }
+
   return NextResponse.json({
     success: true,
     queueId: created.id,
     queueCode: created.queueCode,
     visitDate: visitDate.toISOString().slice(0, 10),
+    guestName: payload.guestName,
+    guestMobile,
+    guestEmail,
+    participantCount: participants.length,
+    slipLines,
+    subtotal,
+    gstAmount,
     totalAmount: Number(created.totalAmount),
   });
 }

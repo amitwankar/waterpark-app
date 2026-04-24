@@ -19,7 +19,14 @@ import { evaluateCoupon } from "@/lib/coupon";
 import { db } from "@/lib/db";
 import { buildBookingNotes, splitBookingNotes, type BookingCustomDiscountType } from "@/lib/booking-meta";
 import { encrypt, maskIdProof } from "@/lib/encryption";
+import { sendBookingConfirmationEmail } from "@/lib/mailer";
+import { consumeQueueOtpProof } from "@/lib/queue-otp";
 import { generateBookingQrContent } from "@/lib/qr";
+import {
+  needsEmailVerification,
+  needsSmsVerification,
+  normalizeQueueVerificationMode,
+} from "@/lib/queue-verification";
 import { incrementQueueBy } from "@/lib/rides";
 import { generateBookingNumber } from "@/lib/utils";
 
@@ -39,6 +46,8 @@ const listQuerySchema = z.object({
 
 const bookingExtrasSchema = z
   .object({
+    guestDob: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/).optional().or(z.literal("")),
+    guestAddress: z.string().trim().max(300).optional().or(z.literal("")),
     idProofType: z.enum(ID_PROOF_TYPES).optional(),
     idProofNumber: z.string().trim().max(60).optional().or(z.literal("")),
     idProofLabel: z.string().trim().max(60).optional().or(z.literal("")),
@@ -58,8 +67,11 @@ const bookingExtrasSchema = z
       .optional(),
     paymentPlan: z.enum(["FULL", "ADVANCE"]).optional(),
     advancePercent: z.number().min(1).max(90).optional(),
+    advanceAmount: z.number().min(0).max(1000000).optional(),
     paymentMethod: z.enum(BOOKING_PAYMENT_METHODS).optional(),
     paymentReference: z.string().trim().max(120).optional().or(z.literal("")),
+    emailOtpProofToken: z.string().trim().min(1).optional(),
+    smsOtpProofToken: z.string().trim().min(1).optional(),
     customDiscountType: z.enum(["NONE", "PERCENTAGE", "AMOUNT"]).optional(),
     customDiscountValue: z.number().min(0).max(1000000).optional(),
     packageLines: z.array(z.object({ packageId: z.string().min(1), quantity: z.number().int().min(1).max(100) })).optional(),
@@ -72,7 +84,7 @@ const bookingExtrasSchema = z
         }),
       )
       .optional(),
-    lockerLines: z.array(z.object({ lockerId: z.string().min(1), quantity: z.number().int().min(1).max(500) })).optional(),
+    lockerLines: z.array(z.object({ lockerCategoryId: z.string().min(1), quantity: z.number().int().min(1).max(500) })).optional(),
     costumeLines: z
       .array(
         z.object({
@@ -193,6 +205,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         idProofRequiredAbove: true,
         depositEnabled: true,
         depositPercent: true,
+        queueVerificationMode: true,
       },
     }),
     db.ticketType.findMany({
@@ -219,6 +232,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   if (!parkConfig) {
     return NextResponse.json({ message: "Park configuration not found" }, { status: 500 });
   }
+
+  const verificationMode = normalizeQueueVerificationMode(parkConfig.queueVerificationMode);
+  const normalizedGuestEmail = sanitizeOptionalEmail(payload.guestEmail);
+  const normalizedGuestMobile = sanitizeMobile(payload.guestMobile);
 
   if (tickets.length !== selectedTicketIds.length) {
     return NextResponse.json({ message: "One or more selected ticket types are invalid" }, { status: 404 });
@@ -284,11 +301,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const selectedFoodVariantIds = Array.from(
     new Set(foodLines.map((line) => line.foodVariantId).filter((value): value is string => Boolean(value))),
   );
-  const selectedLockerIds = Array.from(new Set(lockerLines.map((line) => line.lockerId)));
+  const selectedLockerCategoryIds = Array.from(new Set(lockerLines.map((line) => line.lockerCategoryId)));
   const selectedCostumeIds = Array.from(new Set(costumeLines.map((line) => line.costumeItemId)));
   const selectedRideIds = Array.from(new Set(rideLines.map((line) => line.rideId)));
 
-  const [packages, foodItems, foodVariants, lockers, costumeItems, rides] = await Promise.all([
+  const [packages, foodItems, foodVariants, lockerCategories, costumeItems, rides] = await Promise.all([
     packageIds.length > 0
       ? db.salesPackage.findMany({
           where: { id: { in: packageIds }, isDeleted: false, isActive: true },
@@ -307,10 +324,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           select: { id: true, foodItemId: true, price: true },
         })
       : Promise.resolve([]),
-    selectedLockerIds.length > 0
-      ? db.locker.findMany({
-          where: { id: { in: selectedLockerIds }, isActive: true },
-          select: { id: true, rate: true, gstRate: true },
+    selectedLockerCategoryIds.length > 0
+      ? db.lockerCategory.findMany({
+          where: { id: { in: selectedLockerCategoryIds }, isActive: true },
+          select: { id: true, baseRate: true, gstRate: true },
         })
       : Promise.resolve([]),
     selectedCostumeIds.length > 0
@@ -336,8 +353,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   if (foodVariants.length !== selectedFoodVariantIds.length) {
     return NextResponse.json({ message: "One or more selected food variants are invalid/unavailable" }, { status: 400 });
   }
-  if (lockers.length !== selectedLockerIds.length) {
-    return NextResponse.json({ message: "One or more selected lockers are invalid" }, { status: 400 });
+  if (lockerCategories.length !== selectedLockerCategoryIds.length) {
+    return NextResponse.json({ message: "One or more selected locker categories are invalid" }, { status: 400 });
   }
   if (costumeItems.length !== selectedCostumeIds.length) {
     return NextResponse.json({ message: "One or more selected costumes are invalid/unavailable" }, { status: 400 });
@@ -349,7 +366,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const packageMap = new Map(packages.map((item) => [item.id, item]));
   const foodMap = new Map(foodItems.map((item) => [item.id, item]));
   const foodVariantMap = new Map(foodVariants.map((item) => [item.id, item]));
-  const lockerMap = new Map(lockers.map((item) => [item.id, item]));
+  const lockerMap = new Map(lockerCategories.map((item) => [item.id, item]));
   const costumeMap = new Map(costumeItems.map((item) => [item.id, item]));
   const rideMap = new Map(rides.map((item) => [item.id, item]));
 
@@ -382,14 +399,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }, 0);
 
   const lockerBaseAmount = lockerLines.reduce((sum, line) => {
-    const locker = lockerMap.get(line.lockerId);
+    const locker = lockerMap.get(line.lockerCategoryId);
     if (!locker) return sum;
-    return sum + Number(locker.rate) * line.quantity;
+    return sum + Number(locker.baseRate) * line.quantity;
   }, 0);
   const lockerGstAmount = lockerLines.reduce((sum, line) => {
-    const locker = lockerMap.get(line.lockerId);
+    const locker = lockerMap.get(line.lockerCategoryId);
     if (!locker) return sum;
-    return sum + Number(locker.rate) * line.quantity * (Number(locker.gstRate ?? parkConfig.defaultGstRate) / 100);
+    return sum + Number(locker.baseRate) * line.quantity * (Number(locker.gstRate ?? parkConfig.defaultGstRate) / 100);
   }, 0);
 
   const costumeBaseAmount = costumeLines.reduce((sum, line) => {
@@ -506,8 +523,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const defaultAdvancePercent = Number(parkConfig.depositPercent ?? 30);
   const selectedAdvancePercent = Math.max(1, Math.min(90, Number(extras.advancePercent ?? defaultAdvancePercent)));
   const paymentPlan = isComplimentary ? "FULL" : isAdvancePlanRequested && depositEnabled ? "ADVANCE" : "FULL";
+  const requestedAdvanceAmount = Number(extras.advanceAmount ?? 0);
+  const computedDefaultAdvance = roundMoney(Math.ceil((pricing.totalAmount * selectedAdvancePercent) / 100));
   const advanceAmount =
-    paymentPlan === "ADVANCE" ? roundMoney(Math.ceil((pricing.totalAmount * selectedAdvancePercent) / 100)) : pricing.totalAmount;
+    paymentPlan === "ADVANCE"
+      ? roundMoney(Math.min(pricing.totalAmount, Math.max(0, requestedAdvanceAmount > 0 ? requestedAdvanceAmount : computedDefaultAdvance)))
+      : pricing.totalAmount;
   const balanceDue = roundMoney(Math.max(0, pricing.totalAmount - advanceAmount));
 
   const selectedMethod = extras.paymentMethod ?? "GATEWAY";
@@ -520,6 +541,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const encryptedIdProofNumber = extras.idProofNumber && extras.idProofNumber.trim().length > 0
     ? encrypt(sanitizeIdProofNumber(extras.idProofNumber))
     : null;
+  const guestDob = extras.guestDob ? parseDateOnlyToUtc(extras.guestDob) : null;
+  if (extras.guestDob && !guestDob) {
+    return NextResponse.json({ message: "Invalid date of birth" }, { status: 400 });
+  }
+  if (guestDob) {
+    const today = new Date();
+    const minDob = new Date("1900-01-01T00:00:00.000Z");
+    if (guestDob > today || guestDob < minDob) {
+      return NextResponse.json({ message: "Date of birth is out of valid range" }, { status: 400 });
+    }
+  }
+  const guestAddress = extras.guestAddress?.trim() ? extras.guestAddress.trim().slice(0, 300) : null;
 
   const slotTicketTypeIds: string[] = normalizedTicketLines.flatMap((line) =>
     Array.from({ length: line.quantity }).map(() => line.ticketTypeId),
@@ -547,6 +580,40 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
   }
 
+  if (needsEmailVerification(verificationMode)) {
+    if (!normalizedGuestEmail) {
+      return NextResponse.json({ message: "Email verification is required for booking" }, { status: 400 });
+    }
+    if (!extras.emailOtpProofToken) {
+      return NextResponse.json({ message: "Email OTP verification is required for booking" }, { status: 401 });
+    }
+    const emailProofOk = await consumeQueueOtpProof({
+      channel: "email",
+      value: normalizedGuestEmail,
+      proofToken: extras.emailOtpProofToken,
+    });
+    if (!emailProofOk) {
+      return NextResponse.json({ message: "Email verification proof expired or invalid" }, { status: 401 });
+    }
+  }
+
+  if (needsSmsVerification(verificationMode)) {
+    if (!normalizedGuestMobile) {
+      return NextResponse.json({ message: "SMS verification is required for booking" }, { status: 400 });
+    }
+    if (!extras.smsOtpProofToken) {
+      return NextResponse.json({ message: "SMS OTP verification is required for booking" }, { status: 401 });
+    }
+    const smsProofOk = await consumeQueueOtpProof({
+      channel: "sms",
+      value: normalizedGuestMobile,
+      proofToken: extras.smsOtpProofToken,
+    });
+    if (!smsProofOk) {
+      return NextResponse.json({ message: "SMS verification proof expired or invalid" }, { status: 401 });
+    }
+  }
+
   const booking = await db.$transaction(async (tx: any) => {
     const created = await tx.booking.create({
       data: {
@@ -554,8 +621,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         bookingNumber,
         userId: sessionUser?.id ?? null,
         guestName: sanitizeGuestName(payload.guestName),
-        guestMobile: sanitizeMobile(payload.guestMobile),
-        guestEmail: sanitizeOptionalEmail(payload.guestEmail),
+        guestMobile: normalizedGuestMobile,
+        guestEmail: normalizedGuestEmail,
         visitDate,
         adults,
         children,
@@ -569,7 +636,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         status: bookingStatus,
         qrCode,
         couponId,
-        notes: buildBookingNotes(null, {
+        notes: buildBookingNotes(guestAddress ? `Address: ${guestAddress}` : null, {
           packageLines,
           foodLines,
           lockerLines,
@@ -625,6 +692,21 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       })),
     });
 
+    await tx.guestProfile.upsert({
+      where: { mobile: normalizedGuestMobile },
+      update: {
+        name: sanitizeGuestName(payload.guestName),
+        email: normalizedGuestEmail,
+        ...(guestDob ? { dob: guestDob } : {}),
+      },
+      create: {
+        mobile: normalizedGuestMobile,
+        name: sanitizeGuestName(payload.guestName),
+        email: normalizedGuestEmail,
+        ...(guestDob ? { dob: guestDob } : {}),
+      },
+    });
+
     await tx.transaction.create({
       data: {
         bookingId: created.id,
@@ -669,7 +751,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         data: {
           couponId,
           bookingId: created.id,
-          mobile: sanitizeMobile(payload.guestMobile),
+          mobile: normalizedGuestMobile,
           userId: sessionUser?.id ?? null,
           discountAmount: pricing.discountAmount,
         },
@@ -695,6 +777,26 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   await Promise.all(
     Array.from(rideQueueIncrements.entries()).map(([rideId, quantity]) => incrementQueueBy(rideId, quantity)),
   );
+
+  if (payload.guestEmail?.trim()) {
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+    void sendBookingConfirmationEmail({
+      email: payload.guestEmail.trim(),
+      name: sanitizeGuestName(payload.guestName),
+      bookingNumber: booking.bookingNumber,
+      visitDate: payload.visitDate,
+      qrLink: `${appUrl}/booking/confirmation/${booking.bookingNumber}`,
+      ticketLines: normalizedTicketLines.map((line) => {
+        const ticket = ticketById.get(line.ticketTypeId);
+        return {
+          name: ticket?.name ?? "Ticket",
+          quantity: line.quantity,
+          unitPrice: Number(ticket?.price ?? 0),
+        };
+      }),
+      totalAmount: pricing.totalAmount,
+    }).catch(() => undefined);
+  }
 
   return NextResponse.json(
     {

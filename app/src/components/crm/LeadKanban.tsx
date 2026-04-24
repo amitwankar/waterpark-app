@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useOptimistic, useState, useTransition } from "react";
 
+import { LeadDrawer } from "@/components/crm/LeadDrawer";
 import { useToast } from "@/components/feedback/Toast";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -18,15 +19,17 @@ export interface LeadKanbanItem extends LeadCardData {
 
 export interface LeadKanbanProps {
   leads: LeadKanbanItem[];
+  assignees: Array<{ id: string; name: string }>;
 }
 
 const COLUMNS: PipelineStage[] = ["NEW", "CONTACTED", "INTERESTED", "PROPOSAL_SENT", "BOOKED", "LOST"];
 
-export function LeadKanban({ leads }: LeadKanbanProps): JSX.Element {
+export function LeadKanban({ leads, assignees }: LeadKanbanProps): JSX.Element {
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
   const { pushToast } = useToast();
   const [scheduleLeadId, setScheduleLeadId] = useState<string | null>(null);
+  const [editingLeadId, setEditingLeadId] = useState<string | null>(null);
   const [scheduleDateTime, setScheduleDateTime] = useState("");
   const [savingSchedule, setSavingSchedule] = useState(false);
 
@@ -59,6 +62,18 @@ export function LeadKanban({ leads }: LeadKanbanProps): JSX.Element {
       const payload = (await response.json().catch(() => null)) as { message?: string } | null;
       throw new Error(payload?.message ?? "Unable to move lead");
     }
+  }
+
+  async function deleteLead(leadId: string): Promise<void> {
+    if (!confirm("Delete this lead?")) return;
+    const response = await fetch(`/api/v1/crm/leads/${leadId}`, { method: "DELETE" });
+    const payload = (await response.json().catch(() => null)) as { message?: string } | null;
+    if (!response.ok) {
+      pushToast({ title: "Delete failed", message: payload?.message ?? "Could not delete lead", variant: "error" });
+      return;
+    }
+    pushToast({ title: "Lead deleted", variant: "success" });
+    router.refresh();
   }
 
   function openScheduleModal(leadId: string): void {
@@ -164,6 +179,12 @@ export function LeadKanban({ leads }: LeadKanbanProps): JSX.Element {
                       <Button size="sm" variant="outline" onClick={() => openScheduleModal(lead.id)}>
                         Schedule
                       </Button>
+                      <Button size="sm" variant="outline" onClick={() => setEditingLeadId(lead.id)}>
+                        Edit
+                      </Button>
+                      <Button size="sm" variant="danger" onClick={() => void deleteLead(lead.id)}>
+                        Delete
+                      </Button>
                     </div>
                   </div>
                 );
@@ -198,6 +219,15 @@ export function LeadKanban({ leads }: LeadKanbanProps): JSX.Element {
           </div>
         </div>
       </Modal>
+
+      <LeadDrawer
+        open={Boolean(editingLeadId)}
+        onClose={() => setEditingLeadId(null)}
+        assignees={assignees}
+        mode="edit"
+        leadId={editingLeadId}
+        onSaved={() => router.refresh()}
+      />
     </div>
   );
 }

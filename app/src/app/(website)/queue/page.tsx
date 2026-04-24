@@ -12,7 +12,7 @@ import { formatCurrency } from "@/lib/utils";
 type TicketOption = { id: string; name: string; price: number; gstRate: number };
 type PackageOption = { id: string; name: string; listedPrice: number; salePrice: number; gstRate: number };
 type FoodOption = { id: string; foodItemId: string; foodVariantId?: string; name: string; variantName?: string; price: number; gstRate: number };
-type LockerProduct = { lockerId: string; label: string; rate: number; gstRate: number };
+type LockerProduct = { lockerCategoryId: string; label: string; rate: number; gstRate: number };
 type CostumeGroup = { costumeItemId: string; label: string; rentalRate: number; gstRate: number; availableQuantity: number };
 type RideOption = { id: string; name: string; zoneName?: string | null; entryFee: number; gstRate: number };
 type QueueCartLineItem = {
@@ -23,9 +23,21 @@ type QueueCartLineItem = {
   unitPrice: number;
   lineTotal: number;
 };
+type QueueSlipLineItem = {
+  section: string;
+  label: string;
+  quantity: number;
+  unitPrice: number;
+  lineTotal: number;
+};
 
 type QueueOptionsResponse = {
-  queue: { limitPerDay: number; prefix: string; todayCount: number };
+  queue: {
+    limitPerDay: number;
+    prefix: string;
+    todayCount: number;
+    verificationMode: "DISABLED" | "EMAIL" | "SMS" | "BOTH";
+  };
   tickets: TicketOption[];
   packages: PackageOption[];
   foodOptions: FoodOption[];
@@ -40,6 +52,14 @@ function roundMoney(value: number): number {
   return Math.round(value * 100) / 100;
 }
 
+function modeNeedsEmail(mode: QueueOptionsResponse["queue"]["verificationMode"]): boolean {
+  return mode === "EMAIL" || mode === "BOTH";
+}
+
+function modeNeedsSms(mode: QueueOptionsResponse["queue"]["verificationMode"]): boolean {
+  return mode === "SMS" || mode === "BOTH";
+}
+
 export default function PublicQueuePage(): JSX.Element {
   const [loading, setLoading] = useState(true);
   const [options, setOptions] = useState<QueueOptionsResponse | null>(null);
@@ -49,17 +69,38 @@ export default function PublicQueuePage(): JSX.Element {
   const [guestMobile, setGuestMobile] = useState("");
   const [guestEmail, setGuestEmail] = useState("");
   const [notes, setNotes] = useState("");
+  const [emailOtp, setEmailOtp] = useState("");
+  const [smsOtp, setSmsOtp] = useState("");
+  const [sendingEmailOtp, setSendingEmailOtp] = useState(false);
+  const [sendingSmsOtp, setSendingSmsOtp] = useState(false);
+  const [verifyingEmailOtp, setVerifyingEmailOtp] = useState(false);
+  const [verifyingSmsOtp, setVerifyingSmsOtp] = useState(false);
+  const [emailVerified, setEmailVerified] = useState(false);
+  const [smsVerified, setSmsVerified] = useState(false);
+  const [emailOtpProofToken, setEmailOtpProofToken] = useState<string | null>(null);
+  const [smsOtpProofToken, setSmsOtpProofToken] = useState<string | null>(null);
 
   const [ticketLines, setTicketLines] = useState<Array<{ ticketTypeId: string; quantity: string }>>([{ ticketTypeId: "", quantity: "1" }]);
   const [packageLines, setPackageLines] = useState<Array<{ packageId: string; quantity: string }>>([]);
   const [foodLines, setFoodLines] = useState<Array<{ optionId: string; quantity: string }>>([]);
-  const [lockerLines, setLockerLines] = useState<Array<{ lockerId: string; quantity: string }>>([]);
+  const [lockerLines, setLockerLines] = useState<Array<{ lockerCategoryId: string; quantity: string }>>([]);
   const [costumeLines, setCostumeLines] = useState<Array<{ costumeItemId: string; quantity: string }>>([]);
   const [rideLines, setRideLines] = useState<Array<{ rideId: string; quantity: string }>>([]);
   const [participants, setParticipants] = useState<Participant[]>([]);
 
   const [submitting, setSubmitting] = useState(false);
-  const [created, setCreated] = useState<{ queueCode: string; totalAmount: number } | null>(null);
+  const [created, setCreated] = useState<{
+    queueCode: string;
+    visitDate: string;
+    guestName: string;
+    guestMobile: string | null;
+    guestEmail: string | null;
+    participantCount: number;
+    slipLines: QueueSlipLineItem[];
+    subtotal: number;
+    gstAmount: number;
+    totalAmount: number;
+  } | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -88,7 +129,7 @@ export default function PublicQueuePage(): JSX.Element {
     const ticketMap = new Map(options.tickets.map((t) => [t.id, t]));
     const packageMap = new Map(options.packages.map((p) => [p.id, p]));
     const foodMap = new Map(options.foodOptions.map((f) => [f.id, f]));
-    const lockerMap = new Map(options.lockerProducts.map((l) => [l.lockerId, l]));
+    const lockerMap = new Map(options.lockerProducts.map((l) => [l.lockerCategoryId, l]));
     const costumeMap = new Map(options.costumeGroups.map((c) => [c.costumeItemId, c]));
     const rideMap = new Map(options.rides.map((r) => [r.id, r]));
 
@@ -142,13 +183,13 @@ export default function PublicQueuePage(): JSX.Element {
       });
     }
     for (const line of lockerLines) {
-      const l = lockerMap.get(line.lockerId);
+      const l = lockerMap.get(line.lockerCategoryId);
       if (!l) continue;
       const qty = Math.max(1, Number(line.quantity || "1"));
       subtotal += l.rate * qty;
       gst += l.rate * qty * (l.gstRate / 100);
       cartItems.push({
-        key: `locker-${line.lockerId}-${cartItems.length}`,
+        key: `locker-${line.lockerCategoryId}-${cartItems.length}`,
         section: "Lockers",
         label: l.label,
         quantity: qty,
@@ -192,15 +233,96 @@ export default function PublicQueuePage(): JSX.Element {
     return { subtotal, gst, total: roundMoney(subtotal + gst), cartItems };
   }, [options, ticketLines, packageLines, foodLines, lockerLines, costumeLines, rideLines]);
 
+  const verificationMode = options?.queue.verificationMode ?? "DISABLED";
+  const emailRequired = modeNeedsEmail(verificationMode);
+  const smsRequired = modeNeedsSms(verificationMode);
+  const canSubmitQueue =
+    guestName.trim().length > 0 &&
+    totals.total > 0 &&
+    (!emailRequired || emailVerified) &&
+    (!smsRequired || smsVerified);
+
+  async function sendOtp(channel: "email" | "sms"): Promise<void> {
+    setError(null);
+    if (channel === "email") {
+      if (!guestEmail.trim()) {
+        setError("Enter email first");
+        return;
+      }
+      setSendingEmailOtp(true);
+    } else {
+      if (!guestMobile.trim()) {
+        setError("Enter mobile number first");
+        return;
+      }
+      setSendingSmsOtp(true);
+    }
+    try {
+      const res = await fetch("/api/v1/public/queue/send-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ channel, email: guestEmail, mobile: guestMobile }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message ?? "Failed to send OTP");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to send OTP");
+    } finally {
+      if (channel === "email") setSendingEmailOtp(false);
+      else setSendingSmsOtp(false);
+    }
+  }
+
+  async function verifyOtp(channel: "email" | "sms"): Promise<void> {
+    setError(null);
+    if (channel === "email") setVerifyingEmailOtp(true);
+    else setVerifyingSmsOtp(true);
+    try {
+      const res = await fetch("/api/v1/public/queue/verify-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          channel,
+          email: guestEmail,
+          mobile: guestMobile,
+          otp: channel === "email" ? emailOtp : smsOtp,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message ?? "Failed to verify OTP");
+      if (channel === "email") {
+        setEmailVerified(true);
+        setEmailOtpProofToken(String(data.proofToken));
+      } else {
+        setSmsVerified(true);
+        setSmsOtpProofToken(String(data.proofToken));
+      }
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to verify OTP");
+    } finally {
+      if (channel === "email") setVerifyingEmailOtp(false);
+      else setVerifyingSmsOtp(false);
+    }
+  }
+
   async function submit(): Promise<void> {
     if (!options) return;
     setSubmitting(true);
     setError(null);
     try {
+      if (emailRequired && !emailOtpProofToken) {
+        throw new Error("Complete email OTP verification before queue booking");
+      }
+      if (smsRequired && !smsOtpProofToken) {
+        throw new Error("Complete SMS OTP verification before queue booking");
+      }
+
       const payload = {
         guestName,
         guestMobile,
         guestEmail,
+        emailOtpProofToken: emailOtpProofToken ?? undefined,
+        smsOtpProofToken: smsOtpProofToken ?? undefined,
         notes,
         participants: participants
           .filter((p) => p.name.trim().length > 0)
@@ -225,8 +347,8 @@ export default function PublicQueuePage(): JSX.Element {
           })
           .filter(Boolean),
         lockerLines: lockerLines
-          .filter((l) => l.lockerId)
-          .map((l) => ({ lockerId: l.lockerId, quantity: Math.max(1, Number(l.quantity || "1")) })),
+          .filter((l) => l.lockerCategoryId)
+          .map((l) => ({ lockerCategoryId: l.lockerCategoryId, quantity: Math.max(1, Number(l.quantity || "1")) })),
         costumeLines: costumeLines
           .filter((l) => l.costumeItemId)
           .map((l) => ({ costumeItemId: l.costumeItemId, quantity: Math.max(1, Number(l.quantity || "1")) })),
@@ -242,7 +364,18 @@ export default function PublicQueuePage(): JSX.Element {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message ?? "Failed to create queue");
-      setCreated({ queueCode: data.queueCode, totalAmount: Number(data.totalAmount ?? totals.total) });
+      setCreated({
+        queueCode: data.queueCode,
+        visitDate: String(data.visitDate ?? new Date().toISOString().slice(0, 10)),
+        guestName: String(data.guestName ?? guestName),
+        guestMobile: data.guestMobile ? String(data.guestMobile) : null,
+        guestEmail: data.guestEmail ? String(data.guestEmail) : null,
+        participantCount: Number(data.participantCount ?? participants.length),
+        slipLines: Array.isArray(data.slipLines) ? (data.slipLines as QueueSlipLineItem[]) : [],
+        subtotal: Number(data.subtotal ?? totals.subtotal),
+        gstAmount: Number(data.gstAmount ?? totals.gst),
+        totalAmount: Number(data.totalAmount ?? totals.total),
+      });
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed");
     } finally {
@@ -256,11 +389,11 @@ export default function PublicQueuePage(): JSX.Element {
 
   if (created) {
     return (
-      <div className="mx-auto max-w-2xl px-4 py-10">
+      <div className="mx-auto max-w-3xl px-4 py-10">
         <Card>
           <CardHeader>
-            <h1 className="text-xl font-semibold text-[var(--color-text)]">Queue Created</h1>
-            <p className="text-sm text-[var(--color-text-muted)]">Show this queue ID at the ticket counter.</p>
+            <h1 className="text-xl font-semibold text-[var(--color-text)]">Queue Booking Slip</h1>
+            <p className="text-sm text-[var(--color-text-muted)]">Show this slip at ticket counter for payment and final ticket.</p>
           </CardHeader>
           <CardBody className="space-y-4">
             <div className="flex items-center justify-between rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
@@ -270,11 +403,51 @@ export default function PublicQueuePage(): JSX.Element {
               </div>
               <Badge variant="info">No payment yet</Badge>
             </div>
-            <div className="text-sm text-[var(--color-text-muted)]">
-              <p>Total to pay at counter: <span className="font-semibold text-[var(--color-text)]">{formatCurrency(created.totalAmount)}</span></p>
-              <p className="mt-2">The operator will search this queue ID in POS, confirm items, collect payment, and print the final entry ticket.</p>
+
+            <div className="rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4 text-sm text-[var(--color-text-muted)] space-y-1">
+              <p><span className="font-medium text-[var(--color-text)]">Guest:</span> {created.guestName}</p>
+              <p><span className="font-medium text-[var(--color-text)]">Mobile:</span> {created.guestMobile || "Not provided"}</p>
+              <p><span className="font-medium text-[var(--color-text)]">Email:</span> {created.guestEmail || "Not provided"}</p>
+              <p><span className="font-medium text-[var(--color-text)]">Visit Date:</span> {created.visitDate}</p>
+              <p><span className="font-medium text-[var(--color-text)]">Participants:</span> {created.participantCount}</p>
             </div>
-            <Button onClick={() => window.location.reload()}>Create Another Queue</Button>
+
+            <div className="rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
+              <p className="text-sm font-semibold text-[var(--color-text)] mb-2">Itemized Queue Slip</p>
+              {created.slipLines.length > 0 ? (
+                <div className="space-y-2">
+                  {created.slipLines.map((line, index) => (
+                    <div key={`${line.section}-${line.label}-${index}`} className="flex items-center justify-between border-b border-[var(--color-border)] pb-2 text-sm">
+                      <div>
+                        <p className="font-medium text-[var(--color-text)]">{line.label}</p>
+                        <p className="text-xs text-[var(--color-text-muted)]">{line.section} · {line.quantity} x {formatCurrency(line.unitPrice)}</p>
+                      </div>
+                      <p className="font-semibold text-[var(--color-text)]">{formatCurrency(line.lineTotal)}</p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-[var(--color-text-muted)]">No items found in slip.</p>
+              )}
+              <div className="mt-3 space-y-1 text-sm">
+                <div className="flex items-center justify-between">
+                  <span className="text-[var(--color-text-muted)]">Subtotal</span>
+                  <span className="font-semibold text-[var(--color-text)]">{formatCurrency(created.subtotal)}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[var(--color-text-muted)]">GST</span>
+                  <span className="font-semibold text-[var(--color-text)]">{formatCurrency(created.gstAmount)}</span>
+                </div>
+                <div className="flex items-center justify-between border-t border-[var(--color-border)] pt-2">
+                  <span className="font-semibold text-[var(--color-text)]">Total</span>
+                  <span className="font-semibold text-[var(--color-text)]">{formatCurrency(created.totalAmount)}</span>
+                </div>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" onClick={() => window.print()}>Print Slip</Button>
+              <Button onClick={() => window.location.reload()}>Create Another Queue</Button>
+            </div>
           </CardBody>
         </Card>
       </div>
@@ -305,11 +478,74 @@ export default function PublicQueuePage(): JSX.Element {
             </CardHeader>
             <CardBody className="grid gap-4 md:grid-cols-2">
               <Input label="Guest name *" value={guestName} onChange={(e) => setGuestName(e.target.value)} />
-              <Input label="Mobile (optional)" value={guestMobile} onChange={(e) => setGuestMobile(e.target.value)} placeholder="10-digit mobile" />
-              <Input label="Email (optional)" value={guestEmail} onChange={(e) => setGuestEmail(e.target.value)} />
+              <Input
+                label={smsRequired ? "Mobile (OTP required) *" : "Mobile (optional)"}
+                value={guestMobile}
+                onChange={(e) => {
+                  setGuestMobile(e.target.value);
+                  setSmsVerified(false);
+                  setSmsOtpProofToken(null);
+                }}
+                placeholder="10-digit mobile"
+              />
+              <Input
+                label={emailRequired ? "Email (OTP required) *" : "Email (optional)"}
+                value={guestEmail}
+                onChange={(e) => {
+                  if (emailVerified) return;
+                  setGuestEmail(e.target.value);
+                  setEmailVerified(false);
+                  setEmailOtpProofToken(null);
+                }}
+                disabled={emailVerified}
+              />
               <Input label="Notes (optional)" value={notes} onChange={(e) => setNotes(e.target.value)} />
             </CardBody>
           </Card>
+
+          {emailRequired || smsRequired ? (
+            <Card>
+              <CardHeader>
+                <h2 className="text-lg font-semibold text-[var(--color-text)]">Verify Contact</h2>
+              </CardHeader>
+              <CardBody className="space-y-4">
+                {emailRequired ? (
+                  <div className="grid gap-3 md:grid-cols-[1fr_auto_auto] items-end">
+                    <Input
+                      label="Email OTP"
+                      value={emailOtp}
+                      onChange={(e) => setEmailOtp(e.target.value)}
+                      disabled={emailVerified}
+                      placeholder="6-digit OTP"
+                    />
+                    <Button variant="outline" loading={sendingEmailOtp} onClick={() => void sendOtp("email")} disabled={emailVerified}>
+                      Send OTP
+                    </Button>
+                    <Button loading={verifyingEmailOtp} onClick={() => void verifyOtp("email")} disabled={emailVerified || emailOtp.trim().length !== 6}>
+                      {emailVerified ? "Verified" : "Verify OTP"}
+                    </Button>
+                  </div>
+                ) : null}
+
+                {smsRequired ? (
+                  <div className="grid gap-3 md:grid-cols-[1fr_auto_auto] items-end">
+                    <Input
+                      label="SMS OTP"
+                      value={smsOtp}
+                      onChange={(e) => setSmsOtp(e.target.value)}
+                      placeholder="6-digit OTP"
+                    />
+                    <Button variant="outline" loading={sendingSmsOtp} onClick={() => void sendOtp("sms")}>
+                      Send OTP
+                    </Button>
+                    <Button loading={verifyingSmsOtp} onClick={() => void verifyOtp("sms")} disabled={smsOtp.trim().length !== 6}>
+                      {smsVerified ? "Verified" : "Verify OTP"}
+                    </Button>
+                  </div>
+                ) : null}
+              </CardBody>
+            </Card>
+          ) : null}
 
           <Card>
             <CardHeader>
@@ -428,21 +664,21 @@ export default function PublicQueuePage(): JSX.Element {
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <h3 className="text-sm font-semibold text-[var(--color-text)]">Lockers (quantity only)</h3>
-                  <Button variant="outline" onClick={() => setLockerLines((prev) => [...prev, { lockerId: "", quantity: "1" }])}>Add</Button>
+                  <Button variant="outline" onClick={() => setLockerLines((prev) => [...prev, { lockerCategoryId: "", quantity: "1" }])}>Add</Button>
                 </div>
                 {lockerLines.map((line, index) => (
                   <div key={`l-${index}`} className="grid gap-3 md:grid-cols-[1fr_140px_auto] items-end">
                     <Select
                       label="Locker type"
-                      value={line.lockerId}
+                      value={line.lockerCategoryId}
                       onChange={(event) => {
                         const next = [...lockerLines];
-                        next[index] = { ...next[index]!, lockerId: event.target.value };
+                        next[index] = { ...next[index]!, lockerCategoryId: event.target.value };
                         setLockerLines(next);
                       }}
                       options={[
                         { label: "Select locker type", value: "" },
-                        ...(options?.lockerProducts ?? []).map((l) => ({ label: `${l.label} (${formatCurrency(l.rate)})`, value: l.lockerId })),
+                        ...(options?.lockerProducts ?? []).map((l) => ({ label: `${l.label} (${formatCurrency(l.rate)})`, value: l.lockerCategoryId })),
                       ]}
                     />
                     <Input label="Qty" type="number" min={1} value={line.quantity} onChange={(e) => {
@@ -605,7 +841,7 @@ export default function PublicQueuePage(): JSX.Element {
                 className="w-full mt-3"
                 loading={submitting}
                 onClick={() => void submit()}
-                disabled={!guestName.trim() || totals.total <= 0}
+                disabled={!canSubmitQueue}
               >
                 Get Queue ID
               </Button>
@@ -616,3 +852,4 @@ export default function PublicQueuePage(): JSX.Element {
     </div>
   );
 }
+

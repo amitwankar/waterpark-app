@@ -252,18 +252,14 @@ hr { margin:10px 0; }
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => {
-                window.alert("POS session is active. Close session first to exit.");
-              }}
+              onClick={() => setShowCloser(true)}
               className="rounded-lg border border-[var(--color-border)] px-3 py-2 text-xs font-medium text-[var(--color-text)] hover:bg-zinc-100 dark:hover:bg-zinc-800"
             >
               POS Dashboard
             </button>
             <button
               type="button"
-              onClick={() => {
-                window.alert("POS session is active. Close session first to exit.");
-              }}
+              onClick={() => setShowCloser(true)}
               className="rounded-lg border border-[var(--color-border)] px-3 py-2 text-xs font-medium text-[var(--color-text)] hover:bg-zinc-100 dark:hover:bg-zinc-800"
             >
               Exit POS

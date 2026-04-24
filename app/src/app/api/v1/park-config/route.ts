@@ -27,6 +27,7 @@ export async function GET(): Promise<NextResponse> {
       maxDaysAhead: true,
       bookingCutoffHour: true,
       maxTicketsPerBooking: true,
+      queueVerificationMode: true,
       operatingHours: true,
     },
   });

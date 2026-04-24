@@ -9,6 +9,8 @@ export interface Step1GuestDetailsValue {
   guestName: string;
   guestMobile: string;
   guestEmail: string;
+  guestDob?: string;
+  guestAddress?: string;
   visitDate: string;
   idProofType?: IdProofType;
   idProofNumber?: string;
@@ -19,6 +21,8 @@ export interface Step1GuestDetailsErrors {
   guestName?: string;
   guestMobile?: string;
   guestEmail?: string;
+  guestDob?: string;
+  guestAddress?: string;
   visitDate?: string;
   idProofType?: string;
   idProofNumber?: string;
@@ -32,6 +36,7 @@ export interface Step1GuestDetailsProps {
   minVisitDate: string;
   maxVisitDate: string;
   idProofRequired: boolean;
+  emailLocked?: boolean;
 }
 
 const idProofOptions: Array<{ label: string; value: IdProofType }> = [
@@ -59,6 +64,7 @@ export function Step1GuestDetails({
   minVisitDate,
   maxVisitDate,
   idProofRequired,
+  emailLocked = false,
 }: Step1GuestDetailsProps): JSX.Element {
   return (
     <div className="space-y-4">
@@ -87,6 +93,23 @@ export function Step1GuestDetails({
           onChange={(event) => onChange({ guestEmail: event.target.value })}
           error={errors?.guestEmail}
           placeholder="name@example.com"
+          disabled={emailLocked}
+        />
+        <Input
+          label="Date Of Birth (Optional)"
+          type="date"
+          min="1900-01-01"
+          max={new Date().toISOString().slice(0, 10)}
+          value={value.guestDob ?? ""}
+          onChange={(event) => onChange({ guestDob: event.target.value })}
+          error={errors?.guestDob}
+        />
+        <Input
+          label="Address (Optional)"
+          value={value.guestAddress ?? ""}
+          onChange={(event) => onChange({ guestAddress: event.target.value })}
+          error={errors?.guestAddress}
+          placeholder="Area, City"
         />
         <Input
           label="Visit Date"

@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import { ParkingTerminal } from "@/components/pos/ParkingTerminal";
 import { SessionOpener } from "@/components/pos/SessionOpener";
 import { useResolvedTerminalId } from "@/components/pos/useResolvedTerminalId";
+import { authClient } from "@/lib/auth-client";
 
 interface ActiveSession {
   id: string;
@@ -13,7 +14,10 @@ interface ActiveSession {
 }
 
 export default function ParkingPosPage(): JSX.Element {
+  const router = useRouter();
+  const { data: authSession } = authClient.useSession();
   const searchParams = useSearchParams();
+  const canAccessAdminDashboard = authSession?.user?.role === "ADMIN";
   const terminalId = useResolvedTerminalId({
     searchParams,
     envTerminalId: process.env.NEXT_PUBLIC_POS_TERMINAL_PARKING,
@@ -65,7 +69,15 @@ export default function ParkingPosPage(): JSX.Element {
       sessionId={session.id}
       terminalId={terminalId}
       cashierName={session.staffName}
-      onSessionClosed={() => setSession(null)}
+      onSessionClosed={() => {
+        setSession(null);
+        if (canAccessAdminDashboard) {
+          router.push("/admin/dashboard");
+          return;
+        }
+        window.alert("You don't have permission to access admin dashboard.");
+        router.push("/staff/pos");
+      }}
     />
   );
 }

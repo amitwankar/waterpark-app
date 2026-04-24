@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 
 import { LeadDrawer, type LeadDrawerProps } from "@/components/crm/LeadDrawer";
 import { Button } from "@/components/ui/Button";
@@ -11,6 +12,7 @@ export interface AddLeadModalProps {
 }
 
 export function AddLeadModal({ assignees, onCreated }: AddLeadModalProps): JSX.Element {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
 
   return (
@@ -20,7 +22,11 @@ export function AddLeadModal({ assignees, onCreated }: AddLeadModalProps): JSX.E
         open={open}
         onClose={() => setOpen(false)}
         assignees={assignees}
-        onCreated={onCreated}
+        onCreated={() => {
+          router.refresh();
+          onCreated?.();
+        }}
+        mode="create"
       />
     </>
   );

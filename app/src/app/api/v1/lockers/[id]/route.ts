@@ -11,6 +11,7 @@ function asNumber(value: unknown, fallback: number): number {
 
 const updateSchema = z.object({
   zoneId: z.string().min(1).optional(),
+  categoryId: z.string().min(1).nullable().optional(),
   number: z.string().min(1).max(20).optional(),
   size: z.enum(["SMALL", "MEDIUM", "LARGE"]).optional(),
   rate: z.number().positive().optional(),
@@ -32,6 +33,7 @@ export async function GET(
     where: { id },
     include: {
       zone: true,
+      category: true,
       assignments: {
         where: { returnedAt: null },
         take: 1,
@@ -49,6 +51,13 @@ export async function GET(
     ...locker,
     rate: Number(locker.rate),
     gstRate: asNumber((locker as unknown as Record<string, unknown>).gstRate, 18),
+    category: locker.category
+      ? {
+          ...locker.category,
+          baseRate: asNumber((locker.category as unknown as Record<string, unknown>).baseRate, 0),
+          gstRate: asNumber((locker.category as unknown as Record<string, unknown>).gstRate, 0),
+        }
+      : null,
   });
 }
 
@@ -67,6 +76,16 @@ export async function PUT(
       { error: "Validation failed", issues: parsed.error.issues },
       { status: 422 }
     );
+  }
+
+  if (parsed.data.categoryId) {
+    const category = await db.lockerCategory.findFirst({
+      where: { id: parsed.data.categoryId, isActive: true },
+      select: { id: true },
+    });
+    if (!category) {
+      return NextResponse.json({ error: "Locker category not found" }, { status: 404 });
+    }
   }
 
   const locker = await db.locker.update({

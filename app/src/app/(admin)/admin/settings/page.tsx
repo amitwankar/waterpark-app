@@ -62,6 +62,7 @@ interface SettingsPayload {
   maxTicketsPerBooking: number;
   queueLimitPerDay: number;
   queuePrefix: string;
+  queueVerificationMode: "DISABLED" | "EMAIL" | "SMS" | "BOTH";
   operatingHours: OperatingDayRow[];
   notifyBookingConfirm: boolean;
   notifyCheckin: boolean;
@@ -272,6 +273,7 @@ export default function SettingsPage(): JSX.Element {
             initialValue={{
               queueLimitPerDay: settings.queueLimitPerDay ?? 0,
               queuePrefix: settings.queuePrefix ?? "Q",
+              queueVerificationMode: settings.queueVerificationMode ?? "DISABLED",
             }}
             onSaved={handleSaved}
             onDirtyChange={dirtyHandlers.queue}

@@ -188,8 +188,6 @@ export default async function CrmLeadsPage({ searchParams }: LeadsPageProps): Pr
         </CardBody>
       </Card>
 
-      <ConversionMetrics conversionRate={analytics.conversionRate} lossRate={analytics.lossRate} stageBreakdown={analytics.stageBreakdown} />
-
       {view === "kanban" ? (
         <LeadKanban
           leads={leadRows.map((lead: any) => ({
@@ -202,10 +200,13 @@ export default async function CrmLeadsPage({ searchParams }: LeadsPageProps): Pr
             budgetEstimate: lead.budgetEstimate,
             followUpAt: lead.followUpAt,
           }))}
+          assignees={assignees}
         />
       ) : (
-        <LeadTable rows={leadRows as any} />
+        <LeadTable rows={leadRows as any} assignees={assignees} />
       )}
+
+      <ConversionMetrics conversionRate={analytics.conversionRate} lossRate={analytics.lossRate} stageBreakdown={analytics.stageBreakdown} />
     </div>
   );
 }

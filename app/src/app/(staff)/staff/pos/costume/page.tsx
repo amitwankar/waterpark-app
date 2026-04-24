@@ -1,10 +1,11 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { SessionOpener } from "@/components/pos/SessionOpener";
 import { CostumeTerminal } from "@/components/pos/CostumeTerminal";
 import { useResolvedTerminalId } from "@/components/pos/useResolvedTerminalId";
+import { authClient } from "@/lib/auth-client";
 
 interface ActiveSession {
   id: string;
@@ -12,7 +13,10 @@ interface ActiveSession {
 }
 
 export default function CostumePosPage() {
+  const router = useRouter();
+  const { data: authSession } = authClient.useSession();
   const searchParams = useSearchParams();
+  const canAccessAdminDashboard = authSession?.user?.role === "ADMIN";
   const terminalId = useResolvedTerminalId({
     searchParams,
     envTerminalId: process.env.NEXT_PUBLIC_POS_TERMINAL_COSTUME,
@@ -66,7 +70,15 @@ export default function CostumePosPage() {
       sessionId={session.id}
       terminalId={terminalId}
       cashierName={session.staffName}
-      onSessionClosed={() => setSession(null)}
+      onSessionClosed={() => {
+        setSession(null);
+        if (canAccessAdminDashboard) {
+          router.push("/admin/dashboard");
+          return;
+        }
+        window.alert("You don't have permission to access admin dashboard.");
+        router.push("/staff/pos");
+      }}
     />
   );
 }

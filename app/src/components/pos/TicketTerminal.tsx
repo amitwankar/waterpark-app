@@ -28,6 +28,10 @@ interface LookupBooking {
   guestName: string;
   guestMobile: string;
   visitDate: string;
+  status?: string;
+  totalAmount?: number;
+  paid?: number;
+  balance?: number;
   discountAmount?: number;
   tickets: Array<{
     ticketTypeId: string;
@@ -39,7 +43,7 @@ interface LookupBooking {
   posPreload?: {
     packageLines?: Array<{ packageId: string; quantity: number }>;
     foodLines?: Array<{ foodItemId: string; foodVariantId?: string; quantity: number }>;
-    lockerLines?: Array<{ lockerId: string; quantity: number }>;
+    lockerLines?: Array<{ lockerId?: string; lockerCategoryId?: string; quantity: number }>;
     costumeLines?: Array<{ costumeItemId: string; quantity: number }>;
     rideLines?: Array<{ rideId: string; quantity: number }>;
     customDiscountType?: "NONE" | "PERCENTAGE" | "AMOUNT";
@@ -145,6 +149,7 @@ export function TicketTerminal({
   const [linkedBookingNumber, setLinkedBookingNumber] = useState<string | null>(null);
   const [linkedBookingId, setLinkedBookingId] = useState<string | null>(null);
   const [linkedQueueRequestId, setLinkedQueueRequestId] = useState<string | null>(null);
+  const [linkedSourcePaidAmount, setLinkedSourcePaidAmount] = useState(0);
   const [foodOptions, setFoodOptions] = useState<FoodOption[]>([]);
   const [lockerOptions, setLockerOptions] = useState<LockerOption[]>([]);
   const [costumeOptions, setCostumeOptions] = useState<CostumeOption[]>([]);
@@ -219,6 +224,11 @@ export function TicketTerminal({
   }>>([]);
   const [addOnError, setAddOnError] = useState<string | null>(null);
   const [importCandidate, setImportCandidate] = useState<LookupBooking | null>(null);
+  const [sourcePickerOpen, setSourcePickerOpen] = useState<"BOOKING" | "QUEUE" | null>(null);
+  const [sourcePickerQuery, setSourcePickerQuery] = useState("");
+  const [sourcePickerItems, setSourcePickerItems] = useState<LookupBooking[]>([]);
+  const [sourcePickerLoading, setSourcePickerLoading] = useState(false);
+  const [liveCounts, setLiveCounts] = useState<{ BOOKING: number; QUEUE: number }>({ BOOKING: 0, QUEUE: 0 });
   const [participants, setParticipants] = useState<ParticipantRow[]>([]);
   const [manualDiscountAmount, setManualDiscountAmount] = useState(0);
   const [couponTemplates, setCouponTemplates] = useState<CouponTemplateOption[]>([]);
@@ -226,6 +236,7 @@ export function TicketTerminal({
   const [issueCouponTemplateId, setIssueCouponTemplateId] = useState("");
   const [issueCouponValidityHours, setIssueCouponValidityHours] = useState("24");
   const COSTUME_DURATION_HOURS = 4;
+  const isLinkedPrebooking = Boolean(linkedBookingId);
 
   // Balance collection state
   const [selectedBooking, setSelectedBooking] = useState<{
@@ -280,16 +291,18 @@ export function TicketTerminal({
           return options;
         })
         .catch(() => [] as FoodOption[]),
-      fetch("/api/v1/lockers?status=AVAILABLE")
+      fetch("/api/v1/lockers/categories")
         .then(async (response) => {
           if (!response.ok) return [] as LockerOption[];
-          const payload = (await response.json()) as Array<{ id: string; number: string; rate?: number; gstRate?: number }>;
-          return payload.map((locker) => ({
-            id: locker.id,
-            number: locker.number,
-            rate: Number(locker.rate ?? 299),
-            gstRate: Number(locker.gstRate ?? 0),
-            zoneName: (locker as { zone?: { name?: string } }).zone?.name,
+          const payload = (await response.json()) as Array<{ id: string; name: string; code: string; baseRate?: number; gstRate?: number; size?: string }>;
+          return payload
+            .filter((category) => true)
+            .map((category) => ({
+            id: category.id,
+            number: `${category.name} (${category.code})`,
+            rate: Number(category.baseRate ?? 299),
+            gstRate: Number(category.gstRate ?? 0),
+            zoneName: category.size,
           }));
         })
         .catch(() => [] as LockerOption[]),
@@ -422,6 +435,70 @@ export function TicketTerminal({
     });
   }, []);
 
+  useEffect(() => {
+    let alive = true;
+    async function loadLiveCounts(): Promise<void> {
+      try {
+        const [bookingRes, queueRes] = await Promise.all([
+          fetch("/api/v1/pos/booking-lookup?today=1&countOnly=1"),
+          fetch("/api/v1/pos/queue-lookup?today=1&countOnly=1"),
+        ]);
+        const bookingData = (await bookingRes.json().catch(() => ({}))) as { count?: number };
+        const queueData = (await queueRes.json().catch(() => ({}))) as { count?: number };
+        if (!alive) return;
+        setLiveCounts({
+          BOOKING: Number(bookingData.count ?? 0),
+          QUEUE: Number(queueData.count ?? 0),
+        });
+      } catch {
+        if (!alive) return;
+        setLiveCounts({ BOOKING: 0, QUEUE: 0 });
+      }
+    }
+    void loadLiveCounts();
+    const interval = setInterval(() => void loadLiveCounts(), 30000);
+    return () => {
+      alive = false;
+      clearInterval(interval);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!sourcePickerOpen) return;
+    let cancelled = false;
+    const timeout = setTimeout(() => {
+      void (async () => {
+        setSourcePickerLoading(true);
+        try {
+          const endpoint = sourcePickerOpen === "BOOKING" ? "/api/v1/pos/booking-lookup" : "/api/v1/pos/queue-lookup";
+          const params = new URLSearchParams({
+            today: "1",
+            take: "50",
+          });
+          if (sourcePickerQuery.trim().length > 0) {
+            params.set("q", sourcePickerQuery.trim());
+          }
+          const res = await fetch(`${endpoint}?${params.toString()}`);
+          const data = (await res.json().catch(() => [])) as LookupBooking[];
+          if (cancelled) return;
+          if (!res.ok || !Array.isArray(data)) {
+            setSourcePickerItems([]);
+            return;
+          }
+          setSourcePickerItems(data.map((item) => ({ ...item, sourceType: sourcePickerOpen })));
+        } catch {
+          if (!cancelled) setSourcePickerItems([]);
+        } finally {
+          if (!cancelled) setSourcePickerLoading(false);
+        }
+      })();
+    }, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(timeout);
+    };
+  }, [sourcePickerOpen, sourcePickerQuery]);
+
   const mobileValid = /^[6-9]\d{9}$/.test(guestMobile.trim());
   const totalGuests = useMemo(
     () => cart.items.reduce((sum, item) => sum + item.quantity, 0),
@@ -479,8 +556,11 @@ export function TicketTerminal({
   const grossGrandTotal = Math.round((cart.totals.totalAmount + packageTotal + addOnTotal) * 100) / 100;
   const appliedManualDiscount = Math.min(Math.max(0, manualDiscountAmount), grossGrandTotal);
   const grandTotal = Math.round((grossGrandTotal - appliedManualDiscount) * 100) / 100;
+  const payableGrandTotal = Math.round(
+    (linkedBookingId ? Math.max(0, grandTotal - linkedSourcePaidAmount) : grandTotal) * 100,
+  ) / 100;
   const splitTotal = cart.splitLines.reduce((sum, line) => sum + line.amount, 0);
-  const splitRemaining = Math.round((grandTotal - splitTotal) * 100) / 100;
+  const splitRemaining = Math.round((payableGrandTotal - splitTotal) * 100) / 100;
   const isBalanced = Math.abs(splitRemaining) < 0.01;
   const hasCartItems = cart.items.length > 0 || packageLines.length > 0 || foodLines.length > 0 || lockerLines.length > 0 || costumeLines.length > 0 || rideLines.length > 0;
   const canSell = hasCartItems && isBalanced && cart.splitLines.length > 0 && mobileValid && idProofValid;
@@ -521,7 +601,7 @@ export function TicketTerminal({
             foodVariantId: line.foodVariantId,
             quantity: line.quantity,
           })),
-          lockerLines: lockerLines.map((line) => ({ lockerId: line.lockerId, amount: line.amount })),
+          lockerLines: lockerLines.map((line) => ({ lockerCategoryId: line.lockerId, quantity: 1, amount: line.amount })),
           costumeLines: costumeLines.map((line) => ({
             costumeItemId: line.costumeItemId,
             durationHours: line.durationHours,
@@ -552,6 +632,7 @@ export function TicketTerminal({
       setLinkedBookingNumber(null);
       setLinkedBookingId(null);
       setLinkedQueueRequestId(null);
+      setLinkedSourcePaidAmount(0);
       setPackageLines([]);
       setFoodLines([]);
       setLockerLines([]);
@@ -560,6 +641,9 @@ export function TicketTerminal({
       setManualDiscountAmount(0);
       setIssueCouponTemplateId("");
       setIssueCouponValidityHours("24");
+      setSourcePickerOpen(null);
+      setSourcePickerQuery("");
+      setSourcePickerItems([]);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Unknown error");
     } finally {
@@ -568,6 +652,10 @@ export function TicketTerminal({
   }
 
   async function applySelectedCouponCode(): Promise<void> {
+    if (isLinkedPrebooking) {
+      setError("Coupon changes are locked for imported pre-booking.");
+      return;
+    }
     if (!selectedCouponCode.trim()) {
       setError("Select a coupon to apply.");
       return;
@@ -666,6 +754,7 @@ export function TicketTerminal({
     setLinkedBookingNumber(booking.bookingNumber);
     setLinkedQueueRequestId(booking.sourceType === "QUEUE" ? booking.id : null);
     setLinkedBookingId(booking.sourceType === "BOOKING" ? booking.id : null);
+    setLinkedSourcePaidAmount(booking.sourceType === "BOOKING" ? Math.max(0, Number(booking.paid ?? 0)) : 0);
 
     // BOOKING: honor stored booking discount snapshot (coupon + custom discount).
     // QUEUE: discount lives only in posPreload (no payments yet).
@@ -735,10 +824,10 @@ export function TicketTerminal({
       const toAdd: Array<{ lockerId: string; number: string; amount: number; baseAmount: number; gstRate: number }> = [];
       for (const line of requestedLockers) {
         const quantity = Math.max(1, Number(line.quantity || 1));
-        const firstIndex = pool.findIndex((locker) => locker.id === line.lockerId);
-        if (firstIndex < 0) continue;
-        const picked = pool.splice(firstIndex, 1);
-        picked.push(...pool.splice(0, Math.max(0, quantity - 1)));
+        const desiredLockerRef = line.lockerId ?? line.lockerCategoryId ?? "";
+        const selectedCategory = pool.find((locker) => locker.id === desiredLockerRef);
+        if (!selectedCategory) continue;
+        const picked = Array.from({ length: quantity }).map(() => selectedCategory);
         for (const locker of picked) {
           const resolvedGstRate = Number(locker.gstRate ?? lockerGstRate ?? 0);
           const baseAmount = Math.round(locker.rate * 100) / 100;
@@ -818,6 +907,9 @@ export function TicketTerminal({
     }
 
     setImportCandidate(null);
+    setSourcePickerOpen(null);
+    setSourcePickerQuery("");
+    setSourcePickerItems([]);
   }
 
   function handleLoadBookingForWalkIn(booking: LookupBooking): void {
@@ -837,8 +929,7 @@ export function TicketTerminal({
   }
 
   function getAvailableLockers(): LockerOption[] {
-    const usedLockerIds = new Set(lockerLines.map((line) => line.lockerId));
-    return lockerOptions.filter((locker) => !usedLockerIds.has(locker.id));
+    return lockerOptions;
   }
 
   function getAvailableCostumes(): CostumeOption[] {
@@ -921,15 +1012,10 @@ export function TicketTerminal({
     const allAvailable = getAvailableLockers();
     const selected = allAvailable.find((locker) => locker.id === lockerId);
     if (!selected) {
-      setAddOnError("Selected locker is no longer available.");
+      setAddOnError("Selected locker category is no longer available.");
       return;
     }
-    const remaining = allAvailable.filter((locker) => locker.id !== lockerId);
-    const chosen = [selected, ...remaining.slice(0, Math.max(0, quantity - 1))];
-    if (chosen.length < quantity) {
-      setAddOnError(`Only ${chosen.length} locker(s) are currently available.`);
-      return;
-    }
+    const chosen = Array.from({ length: quantity }).map(() => selected);
     setLockerLines((prev) => [
       ...prev,
       ...chosen.map((locker) => {
@@ -1031,18 +1117,14 @@ export function TicketTerminal({
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => {
-              window.alert("POS session is active. Close session first to exit.");
-            }}
+            onClick={() => setShowCloser(true)}
             className="text-xs bg-teal-600 hover:bg-teal-500 px-3 py-1.5 rounded-lg transition-colors"
           >
             POS Dashboard
           </button>
           <button
             type="button"
-            onClick={() => {
-              window.alert("POS session is active. Close session first to exit.");
-            }}
+            onClick={() => setShowCloser(true)}
             className="text-xs bg-teal-600 hover:bg-teal-500 px-3 py-1.5 rounded-lg transition-colors"
           >
             Exit POS
@@ -1083,7 +1165,74 @@ export function TicketTerminal({
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
               <div className="bg-white rounded-xl p-4">
                 <h3 className="text-sm font-semibold text-gray-700 mb-3">Load Existing Booking Data</h3>
+                <div className="mb-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSourcePickerOpen("BOOKING");
+                      setSourcePickerQuery("");
+                    }}
+                    className="inline-flex items-center gap-2 rounded-lg border border-teal-300 bg-teal-50 px-3 py-1.5 text-xs font-semibold text-teal-700 hover:bg-teal-100"
+                  >
+                    Pre-booking
+                    <span className="rounded-full bg-teal-600 px-2 py-0.5 text-[11px] text-white">{liveCounts.BOOKING}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSourcePickerOpen("QUEUE");
+                      setSourcePickerQuery("");
+                    }}
+                    className="inline-flex items-center gap-2 rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100"
+                  >
+                    Queue
+                    <span className="rounded-full bg-indigo-600 px-2 py-0.5 text-[11px] text-white">{liveCounts.QUEUE}</span>
+                  </button>
+                </div>
                 <BookingLookup onSelect={(booking) => handleLoadBookingForWalkIn(booking as LookupBooking)} />
+                {sourcePickerOpen ? (
+                  <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <p className="text-xs font-semibold text-gray-700">
+                        {sourcePickerOpen === "BOOKING" ? "Today's Pre-bookings" : "Today's Queue"} ({sourcePickerItems.length})
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setSourcePickerOpen(null)}
+                        className="text-xs text-gray-500 hover:text-gray-700"
+                      >
+                        Close
+                      </button>
+                    </div>
+                    <input
+                      type="text"
+                      value={sourcePickerQuery}
+                      onChange={(event) => setSourcePickerQuery(event.target.value)}
+                      placeholder="Search by booking/queue id, name or mobile"
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-teal-500"
+                    />
+                    <div className="mt-2 max-h-52 space-y-2 overflow-y-auto">
+                      {sourcePickerLoading ? (
+                        <p className="text-xs text-gray-500">Loading...</p>
+                      ) : sourcePickerItems.length === 0 ? (
+                        <p className="text-xs text-gray-500">No records found.</p>
+                      ) : (
+                        sourcePickerItems.map((item) => (
+                          <button
+                            key={`${item.sourceType}-${item.id}`}
+                            type="button"
+                            onClick={() => handleLoadBookingForWalkIn(item)}
+                            className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-left text-xs hover:border-teal-300 hover:bg-teal-50"
+                          >
+                            <p className="font-semibold text-gray-800">{item.bookingNumber}</p>
+                            <p className="text-gray-600">{item.guestName} · {item.guestMobile || "-"}</p>
+                            <p className="text-gray-500">Visit {item.visitDate}</p>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                ) : null}
                 {importCandidate ? (
                   <div className="mt-3 rounded-lg border border-teal-200 bg-teal-50 p-3 text-xs text-teal-800 space-y-2">
                     <p>
@@ -1121,9 +1270,16 @@ export function TicketTerminal({
               <div className="bg-white rounded-xl p-4 space-y-3">
                 <h3 className="text-sm font-semibold text-gray-700">Guest Info (optional)</h3>
                 {linkedBookingNumber ? (
-                  <p className="text-xs text-teal-700 bg-teal-50 border border-teal-200 rounded-lg px-3 py-2">
-                    Prefilled from booking: <span className="font-semibold">{linkedBookingNumber}</span>
-                  </p>
+                  <div className="space-y-1">
+                    <p className="text-xs text-teal-700 bg-teal-50 border border-teal-200 rounded-lg px-3 py-2">
+                      Prefilled from booking: <span className="font-semibold">{linkedBookingNumber}</span>
+                    </p>
+                    {linkedBookingId ? (
+                      <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                        Pre-booking mode: charging only pending balance. Already paid: ₹{linkedSourcePaidAmount.toFixed(2)}
+                      </p>
+                    ) : null}
+                  </div>
                 ) : null}
                 <div className="grid grid-cols-2 gap-3">
                   <div>
@@ -1694,12 +1850,13 @@ export function TicketTerminal({
                         step="0.01"
                         value={manualDiscountAmount > 0 ? manualDiscountAmount : ""}
                         onChange={(event) => setManualDiscountAmount(Math.max(0, Number(event.target.value || 0)))}
+                        disabled={isLinkedPrebooking}
                         placeholder="Manual discount amount"
                         className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
                       />
                       {appliedManualDiscount > 0 ? (
                         <p className="text-xs text-emerald-700">
-                          Discount applied: ₹{appliedManualDiscount.toFixed(2)} · Net payable: ₹{grandTotal.toFixed(2)}
+                          Discount applied: ₹{appliedManualDiscount.toFixed(2)} · Net payable: ₹{payableGrandTotal.toFixed(2)}
                         </p>
                       ) : (
                         <p className="text-xs text-gray-500">Set only when booking has negotiated pricing.</p>
@@ -1712,6 +1869,7 @@ export function TicketTerminal({
                         title="Coupon template"
                         value={issueCouponTemplateId}
                         onChange={(event) => setIssueCouponTemplateId(event.target.value)}
+                        disabled={isLinkedPrebooking}
                         className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
                       >
                         <option value="">No coupon</option>
@@ -1728,6 +1886,7 @@ export function TicketTerminal({
                           max={24 * 90}
                           value={issueCouponValidityHours}
                           onChange={(event) => setIssueCouponValidityHours(event.target.value)}
+                          disabled={isLinkedPrebooking}
                           className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
                           placeholder="Validity hours"
                         />
@@ -1741,6 +1900,7 @@ export function TicketTerminal({
                           title="Select coupon"
                           value={selectedCouponCode}
                           onChange={(event) => setSelectedCouponCode(event.target.value)}
+                          disabled={isLinkedPrebooking}
                           className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm"
                         >
                           <option value="">Select coupon code</option>
@@ -1754,6 +1914,7 @@ export function TicketTerminal({
                           type="button"
                           className="px-3 py-2 rounded-lg border border-teal-500 text-teal-600 text-sm font-medium hover:bg-teal-50"
                           onClick={() => void applySelectedCouponCode()}
+                          disabled={isLinkedPrebooking}
                         >
                           Apply
                         </button>
@@ -1764,6 +1925,7 @@ export function TicketTerminal({
                             setSelectedCouponCode("");
                             cart.clearCoupon();
                           }}
+                          disabled={isLinkedPrebooking}
                         >
                           Clear
                         </button>
@@ -1775,12 +1937,15 @@ export function TicketTerminal({
                         onApply={cart.setCoupon}
                         onClear={cart.clearCoupon}
                       />
+                      {isLinkedPrebooking ? (
+                        <p className="text-xs text-amber-700">Discount and coupon edits are locked for imported pre-booking.</p>
+                      ) : null}
                     </div>
 
                     <div>
                       <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Payment</h3>
                       <SplitPaymentBuilder
-                        totalAmount={grandTotal}
+                        totalAmount={payableGrandTotal}
                         splitLines={cart.splitLines}
                         splitRemaining={splitRemaining}
                         onSet={cart.setSplit}
@@ -1804,7 +1969,7 @@ export function TicketTerminal({
                   disabled={!canSell || submitting}
                   className="w-full bg-teal-600 hover:bg-teal-700 disabled:opacity-40 text-white font-bold py-3 rounded-xl transition-colors text-sm"
                 >
-                  {submitting ? "Processing…" : `Checkout · ₹${grandTotal.toFixed(2)}`}
+                  {submitting ? "Processing…" : `Checkout · ₹${payableGrandTotal.toFixed(2)}`}
                 </button>
                 {hasCartItems && (
                   <button
@@ -1817,6 +1982,10 @@ export function TicketTerminal({
                       setCostumeLines([]);
                       setRideLines([]);
                       setManualDiscountAmount(0);
+                      setLinkedBookingNumber(null);
+                      setLinkedBookingId(null);
+                      setLinkedQueueRequestId(null);
+                      setLinkedSourcePaidAmount(0);
                       setSelectedCouponCode("");
                       setIssueCouponTemplateId("");
                       setIssueCouponValidityHours("24");

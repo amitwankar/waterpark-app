@@ -12,6 +12,7 @@ interface LockerRow {
   rate: number;
   gstRate?: number;
   zone: { id: string; name: string };
+  categoryId?: string | null;
 }
 
 interface ActiveAssignment {
@@ -32,7 +33,18 @@ interface ServiceBooking {
   guestName: string;
   guestMobile: string;
   services?: {
-    locker?: { pending: number; delivered: number };
+    locker?: {
+      pending: number;
+      delivered: number;
+      byCategory?: Array<{
+        lockerCategoryId: string;
+        name: string;
+        code: string;
+        quantity: number;
+        delivered: number;
+        pending: number;
+      }>;
+    };
     costume?: { pending: number; delivered: number };
     food?: { pendingQty: number };
   };
@@ -65,17 +77,18 @@ export function LockerTerminal({
   const [bookingQuery, setBookingQuery] = useState("");
   const [bookingLookupError, setBookingLookupError] = useState<string | null>(null);
   const [selectedBooking, setSelectedBooking] = useState<ServiceBooking | null>(null);
-  const [deliverQty, setDeliverQty] = useState("1");
+  const [selectedLockerCategoryId, setSelectedLockerCategoryId] = useState("");
   const [assigning, setAssigning] = useState(false);
   const [releasing, setReleasing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showCloser, setShowCloser] = useState(false);
   const [receiptRef, setReceiptRef] = useState<string | null>(null);
 
-  const availableLockers = useMemo(
-    () => lockers.filter((locker) => locker.status === "AVAILABLE"),
-    [lockers],
-  );
+  const availableLockers = useMemo(() => {
+    const base = lockers.filter((locker) => locker.status === "AVAILABLE");
+    if (!selectedBooking || !selectedLockerCategoryId) return base;
+    return base.filter((locker) => locker.categoryId === selectedLockerCategoryId);
+  }, [lockers, selectedBooking, selectedLockerCategoryId]);
   const assignedLockers = useMemo(
     () => lockers.filter((locker) => locker.status === "ASSIGNED"),
     [lockers],
@@ -116,24 +129,9 @@ export function LockerTerminal({
     setSelectedBooking(first);
     setGuestName(first.guestName);
     setGuestMobile(first.guestMobile);
+    const firstPendingCategory = first.services?.locker?.byCategory?.find((row) => row.pending > 0)?.lockerCategoryId ?? "";
+    setSelectedLockerCategoryId(firstPendingCategory);
     setBookingLookupError(null);
-  }
-
-  async function deliverBookedLocker() {
-    if (!selectedBooking) return;
-    const quantity = Math.max(1, Number(deliverQty || "1"));
-    setError(null);
-    const res = await fetch("/api/v1/lockers/deliver-booked", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ bookingId: selectedBooking.id, quantity }),
-    });
-    const payload = (await res.json().catch(() => null)) as { error?: string; delivered?: number } | null;
-    if (!res.ok) {
-      setError(payload?.error ?? "Failed to mark booked locker as delivered.");
-      return;
-    }
-    await lookupBooking();
   }
 
   async function loadLockers() {
@@ -176,6 +174,7 @@ export function LockerTerminal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           bookingId: selectedBooking?.id,
+          lockerCategoryId: selectedLockerCategoryId || undefined,
           guestName: guestName.trim(),
           guestMobile: guestMobile.trim(),
           durationType,
@@ -247,18 +246,14 @@ export function LockerTerminal({
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => {
-              window.alert("POS session is active. Close session first to exit.");
-            }}
+            onClick={() => setShowCloser(true)}
             className="text-xs bg-indigo-600 hover:bg-indigo-500 px-3 py-1.5 rounded-lg transition-colors"
           >
             POS Dashboard
           </button>
           <button
             type="button"
-            onClick={() => {
-              window.alert("POS session is active. Close session first to exit.");
-            }}
+            onClick={() => setShowCloser(true)}
             className="text-xs bg-indigo-600 hover:bg-indigo-500 px-3 py-1.5 rounded-lg transition-colors"
           >
             Exit POS
@@ -319,23 +314,23 @@ export function LockerTerminal({
                   <div className="rounded bg-gray-50 border border-gray-200 px-3 py-2 text-xs space-y-1">
                     <p className="font-medium text-gray-800">{selectedBooking.bookingNumber} · {selectedBooking.guestName}</p>
                     <p className="text-gray-600">Locker booked pending: {selectedBooking.services?.locker?.pending ?? 0}</p>
-                    {(selectedBooking.services?.locker?.pending ?? 0) > 0 ? (
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="number"
-                          min={1}
-                          max={selectedBooking.services?.locker?.pending ?? 1}
-                          value={deliverQty}
-                          onChange={(event) => setDeliverQty(event.target.value)}
-                          className="w-20 border border-gray-200 rounded px-2 py-1 text-xs"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => void deliverBookedLocker()}
-                          className="px-2 py-1 text-xs rounded bg-indigo-600 text-white"
+                    {(selectedBooking.services?.locker?.byCategory ?? []).length > 0 ? (
+                      <div className="space-y-1">
+                        <label className="block text-xs text-gray-500">Purchased category</label>
+                        <select
+                          value={selectedLockerCategoryId}
+                          onChange={(event) => setSelectedLockerCategoryId(event.target.value)}
+                          className="w-full border border-gray-200 rounded px-2 py-1 text-xs"
                         >
-                          Deliver Booked
-                        </button>
+                          <option value="">Select category</option>
+                          {(selectedBooking.services?.locker?.byCategory ?? [])
+                            .filter((row) => row.pending > 0)
+                            .map((row) => (
+                              <option key={row.lockerCategoryId} value={row.lockerCategoryId}>
+                                {row.name} ({row.code}) · Pending {row.pending}
+                              </option>
+                            ))}
+                        </select>
                       </div>
                     ) : null}
                   </div>

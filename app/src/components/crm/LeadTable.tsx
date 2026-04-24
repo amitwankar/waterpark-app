@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+import { LeadDrawer } from "@/components/crm/LeadDrawer";
 import { useToast } from "@/components/feedback/Toast";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -26,6 +27,7 @@ export interface LeadTableRow {
 
 export interface LeadTableProps {
   rows: LeadTableRow[];
+  assignees: Array<{ id: string; name: string }>;
 }
 
 function followUpClass(followUpAt: string | null): string {
@@ -41,10 +43,11 @@ function followUpClass(followUpAt: string | null): string {
   return "text-[var(--color-text-muted)]";
 }
 
-export function LeadTable({ rows }: LeadTableProps): JSX.Element {
+export function LeadTable({ rows, assignees }: LeadTableProps): JSX.Element {
   const router = useRouter();
   const { pushToast } = useToast();
   const [scheduleLeadId, setScheduleLeadId] = useState<string | null>(null);
+  const [editingLeadId, setEditingLeadId] = useState<string | null>(null);
   const [scheduleDateTime, setScheduleDateTime] = useState("");
   const [savingSchedule, setSavingSchedule] = useState(false);
 
@@ -88,6 +91,18 @@ export function LeadTable({ rows }: LeadTableProps): JSX.Element {
     }
   }
 
+  async function deleteLead(leadId: string): Promise<void> {
+    if (!confirm("Delete this lead?")) return;
+    const response = await fetch(`/api/v1/crm/leads/${leadId}`, { method: "DELETE" });
+    const payload = (await response.json().catch(() => null)) as { message?: string } | null;
+    if (!response.ok) {
+      pushToast({ title: "Delete failed", message: payload?.message ?? "Could not delete lead", variant: "error" });
+      return;
+    }
+    pushToast({ title: "Lead deleted", variant: "success" });
+    router.refresh();
+  }
+
   return (
     <Card>
       <CardHeader>
@@ -126,8 +141,14 @@ export function LeadTable({ rows }: LeadTableProps): JSX.Element {
                     <Link href={`/admin/crm/leads/${row.id}`} className="text-[var(--color-primary)] underline">
                       View
                     </Link>
+                    <Button size="sm" variant="outline" onClick={() => setEditingLeadId(row.id)}>
+                      Edit
+                    </Button>
                     <Button size="sm" variant="outline" onClick={() => openScheduleModal(row.id)}>
                       Schedule
+                    </Button>
+                    <Button size="sm" variant="danger" onClick={() => void deleteLead(row.id)}>
+                      Delete
                     </Button>
                   </div>
                 </td>
@@ -160,6 +181,15 @@ export function LeadTable({ rows }: LeadTableProps): JSX.Element {
           </div>
         </div>
       </Modal>
+
+      <LeadDrawer
+        open={Boolean(editingLeadId)}
+        onClose={() => setEditingLeadId(null)}
+        assignees={assignees}
+        mode="edit"
+        leadId={editingLeadId}
+        onSaved={() => router.refresh()}
+      />
     </Card>
   );
 }

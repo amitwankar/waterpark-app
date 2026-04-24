@@ -3,12 +3,14 @@ import { z } from "zod";
 import { addHours } from "date-fns";
 
 import { db } from "@/lib/db";
+import { sendEmail } from "@/lib/messaging";
 import { requireSubRole } from "@/lib/session";
 
 const FULL_DAY_HOURS = 8;
 
 const assignSchema = z.object({
   bookingId: z.string().optional(),
+  lockerCategoryId: z.string().optional(),
   guestName: z.string().min(1).max(150),
   guestMobile: z.string().regex(/^[6-9]\d{9}$/),
   durationType: z.enum(["HOURLY", "FULL_DAY"]),
@@ -35,7 +37,7 @@ export async function POST(
     );
   }
 
-  const locker = await db.locker.findUnique({ where: { id } });
+  const locker = await db.locker.findUnique({ where: { id }, select: { id: true, number: true, status: true, rate: true, gstRate: true, categoryId: true } });
   if (!locker) {
     return NextResponse.json({ error: "Locker not found" }, { status: 404 });
   }
@@ -46,15 +48,32 @@ export async function POST(
     );
   }
 
-  const { durationType, durationHours, paymentMethod, notes, bookingId, guestName, guestMobile } =
+  const { durationType, durationHours, paymentMethod, notes, bookingId, lockerCategoryId, guestName, guestMobile } =
     parsed.data;
+  let entitlementId: string | null = null;
   if (bookingId) {
-    const booking = await db.booking.findUnique({ where: { id: bookingId }, select: { status: true } });
+    const booking = await db.booking.findUnique({ where: { id: bookingId }, select: { status: true, guestEmail: true } });
     if (!booking) {
       return NextResponse.json({ error: "Booking not found" }, { status: 404 });
     }
     if (booking.status !== "CHECKED_IN") {
       return NextResponse.json({ error: "Booking must be checked in before assigning locker" }, { status: 409 });
+    }
+    if (lockerCategoryId) {
+      const entitlement = await db.bookingLockerEntitlement.findFirst({
+        where: { bookingId, lockerCategoryId },
+        select: { id: true, quantity: true, deliveredQuantity: true },
+      });
+      if (!entitlement) {
+        return NextResponse.json({ error: "Selected category is not purchased in this booking" }, { status: 409 });
+      }
+      if (!locker.categoryId || locker.categoryId !== lockerCategoryId) {
+        return NextResponse.json({ error: "Selected locker does not match purchased category" }, { status: 409 });
+      }
+      if (entitlement.deliveredQuantity >= entitlement.quantity) {
+        return NextResponse.json({ error: "No pending locker entitlement left for this category" }, { status: 409 });
+      }
+      entitlementId = entitlement.id;
     }
   }
 
@@ -69,8 +88,8 @@ export async function POST(
       ? Math.round(baseRate * hours * (1 + gstRate / 100) * 100) / 100
       : Math.round(baseRate * (1 + gstRate / 100) * 100) / 100;
 
-  const [assignment] = await db.$transaction([
-    db.lockerAssignment.create({
+  const assignment = await db.$transaction(async (tx) => {
+    const created = await tx.lockerAssignment.create({
       data: {
         lockerId: id,
         bookingId,
@@ -84,12 +103,33 @@ export async function POST(
         paymentMethod,
         notes: `WALKIN:DELIVERED${notes ? `\n${notes}` : ""}`,
       },
-    }),
-    db.locker.update({
+    });
+    await tx.locker.update({
       where: { id },
       data: { status: "ASSIGNED" },
-    }),
-  ]);
+    });
+    if (entitlementId) {
+      await tx.bookingLockerEntitlement.update({
+        where: { id: entitlementId },
+        data: { deliveredQuantity: { increment: 1 } },
+      });
+    }
+    return created;
+  });
+
+  if (bookingId) {
+    const booking = await db.booking.findUnique({
+      where: { id: bookingId },
+      select: { guestEmail: true, bookingNumber: true, guestName: true },
+    });
+    if (booking?.guestEmail) {
+      void sendEmail(
+        booking.guestEmail,
+        `Locker Assigned - ${booking.bookingNumber}`,
+        `<p>Hi ${booking.guestName},</p><p>Your locker has been assigned.</p><p><strong>Locker Number:</strong> ${locker.number}</p>`,
+      ).catch(() => {});
+    }
+  }
 
   return NextResponse.json(assignment, { status: 201 });
 }

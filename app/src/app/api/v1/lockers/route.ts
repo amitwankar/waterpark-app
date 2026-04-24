@@ -11,6 +11,7 @@ function asNumber(value: unknown, fallback: number): number {
 
 const createSchema = z.object({
   zoneId: z.string().min(1),
+  categoryId: z.string().min(1).optional(),
   number: z.string().min(1).max(20),
   size: z.enum(["SMALL", "MEDIUM", "LARGE"]).default("MEDIUM"),
   rate: z.number().positive().default(299),
@@ -25,17 +26,20 @@ export async function GET(req: NextRequest) {
   const zoneId = searchParams.get("zoneId");
   const status = searchParams.get("status");
   const size = searchParams.get("size");
+  const categoryId = searchParams.get("categoryId");
 
   const lockers = await db.locker.findMany({
     where: {
       isActive: true,
       ...(zoneId ? { zoneId } : {}),
+      ...(categoryId ? { categoryId } : {}),
       ...(status ? { status: status as never } : {}),
       ...(size ? { size: size as never } : {}),
     },
     orderBy: [{ zoneId: "asc" }, { number: "asc" }],
     include: {
       zone: { select: { id: true, name: true } },
+      category: { select: { id: true, name: true, code: true, baseRate: true, gstRate: true } },
       _count: { select: { assignments: true } },
     },
   });
@@ -45,6 +49,13 @@ export async function GET(req: NextRequest) {
       ...locker,
       rate: Number(locker.rate),
       gstRate: asNumber((locker as unknown as Record<string, unknown>).gstRate, 18),
+      category: locker.category
+        ? {
+            ...locker.category,
+            baseRate: asNumber((locker.category as unknown as Record<string, unknown>).baseRate, 0),
+            gstRate: asNumber((locker.category as unknown as Record<string, unknown>).gstRate, 0),
+          }
+        : null,
     })),
   );
 }
@@ -70,6 +81,16 @@ export async function POST(req: NextRequest) {
       { error: "Locker number already exists" },
       { status: 409 }
     );
+  }
+
+  if (parsed.data.categoryId) {
+    const category = await db.lockerCategory.findFirst({
+      where: { id: parsed.data.categoryId, isActive: true },
+      select: { id: true },
+    });
+    if (!category) {
+      return NextResponse.json({ error: "Locker category not found" }, { status: 404 });
+    }
   }
 
   const locker = await db.locker.create({ data: parsed.data });

@@ -30,6 +30,8 @@ type FormValues = {
   guestName: string;
   guestMobile: string;
   guestEmail: string;
+  guestDob: string;
+  guestAddress: string;
   visitDate: string;
   ticketLines: TicketLine[];
   couponCode: string;
@@ -37,7 +39,7 @@ type FormValues = {
   idProofNumber?: string;
   idProofLabel?: string;
   paymentPlan: "FULL" | "ADVANCE";
-  advancePercent: number;
+  advanceAmount: number;
   paymentMethod: "GATEWAY" | "MANUAL_UPI" | "CASH" | "CARD";
   paymentReference: string;
 };
@@ -74,6 +76,7 @@ interface CouponOption {
 interface ParkConfigLite {
   razorpayEnabled?: boolean;
   manualUpiEnabled?: boolean;
+  queueVerificationMode?: "DISABLED" | "EMAIL" | "SMS" | "BOTH";
 }
 
 const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
@@ -92,6 +95,14 @@ function getDateInputRange(): { min: string; max: string } {
     min,
     max: maxDate.toISOString().slice(0, 10),
   };
+}
+
+function modeNeedsEmail(mode: "DISABLED" | "EMAIL" | "SMS" | "BOTH"): boolean {
+  return mode === "EMAIL" || mode === "BOTH";
+}
+
+function modeNeedsSms(mode: "DISABLED" | "EMAIL" | "SMS" | "BOTH"): boolean {
+  return mode === "SMS" || mode === "BOTH";
 }
 
 function buildParticipantDrafts(
@@ -144,11 +155,24 @@ export default function BookingPage(): JSX.Element {
   const [couponDiscount, setCouponDiscount] = useState<number>(0);
   const [applyingCoupon, setApplyingCoupon] = useState<boolean>(false);
   const [couponOptions, setCouponOptions] = useState<CouponOption[]>([]);
+  const [verificationMode, setVerificationMode] = useState<"DISABLED" | "EMAIL" | "SMS" | "BOTH">("DISABLED");
+  const [emailOtp, setEmailOtp] = useState("");
+  const [smsOtp, setSmsOtp] = useState("");
+  const [emailVerified, setEmailVerified] = useState(false);
+  const [smsVerified, setSmsVerified] = useState(false);
+  const [emailOtpProofToken, setEmailOtpProofToken] = useState<string | null>(null);
+  const [smsOtpProofToken, setSmsOtpProofToken] = useState<string | null>(null);
+  const [sendingEmailOtp, setSendingEmailOtp] = useState(false);
+  const [sendingSmsOtp, setSendingSmsOtp] = useState(false);
+  const [verifyingEmailOtp, setVerifyingEmailOtp] = useState(false);
+  const [verifyingSmsOtp, setVerifyingSmsOtp] = useState(false);
   const [participants, setParticipants] = useState<ParticipantDraft[]>([]);
   const [values, setValues] = useState<FormValues>({
     guestName: "",
     guestMobile: "",
     guestEmail: "",
+    guestDob: "",
+    guestAddress: "",
     visitDate: "",
     ticketLines: [],
     couponCode: "",
@@ -156,7 +180,7 @@ export default function BookingPage(): JSX.Element {
     idProofNumber: "",
     idProofLabel: "",
     paymentPlan: "FULL",
-    advancePercent: 30,
+    advanceAmount: 0,
     paymentMethod: "CASH",
     paymentReference: "",
   });
@@ -193,6 +217,7 @@ export default function BookingPage(): JSX.Element {
       const nextMethods: PaymentMethod[] = ["CASH", "CARD"];
       if (payload.manualUpiEnabled) nextMethods.push("MANUAL_UPI");
       if (payload.razorpayEnabled) nextMethods.push("GATEWAY");
+      setVerificationMode(payload.queueVerificationMode ?? "DISABLED");
       setAvailableMethods(nextMethods);
       setValues((current) => ({
         ...current,
@@ -294,12 +319,87 @@ export default function BookingPage(): JSX.Element {
 
   const paymentBreakdown = useMemo(() => {
     if (values.paymentPlan === "ADVANCE") {
-      const payNow = Math.ceil((pricing.totalAmount * values.advancePercent) / 100);
+      const payNow = Math.min(pricing.totalAmount, Math.max(0, Number(values.advanceAmount || 0)));
       const balanceDue = Math.max(0, Number((pricing.totalAmount - payNow).toFixed(2)));
       return { payNow, balanceDue };
     }
     return { payNow: pricing.totalAmount, balanceDue: 0 };
-  }, [values.paymentPlan, values.advancePercent, pricing.totalAmount]);
+  }, [values.paymentPlan, values.advanceAmount, pricing.totalAmount]);
+
+  const emailVerificationRequired = modeNeedsEmail(verificationMode);
+  const smsVerificationRequired = modeNeedsSms(verificationMode);
+
+  async function sendOtp(channel: "email" | "sms"): Promise<void> {
+    if (channel === "email") {
+      if (!values.guestEmail.trim()) {
+        pushToast({ title: "Email required", message: "Enter email before sending OTP", variant: "error" });
+        return;
+      }
+      setSendingEmailOtp(true);
+    } else {
+      if (!values.guestMobile.trim()) {
+        pushToast({ title: "Mobile required", message: "Enter mobile before sending OTP", variant: "error" });
+        return;
+      }
+      setSendingSmsOtp(true);
+    }
+
+    try {
+      const response = await fetch("/api/v1/public/queue/send-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          channel,
+          email: values.guestEmail,
+          mobile: values.guestMobile,
+        }),
+      });
+      const payload = (await response.json().catch(() => ({}))) as { message?: string };
+      if (!response.ok) {
+        throw new Error(payload.message ?? "Could not send OTP");
+      }
+      pushToast({ title: "OTP sent", message: `${channel.toUpperCase()} OTP sent successfully`, variant: "success" });
+    } catch (error) {
+      pushToast({ title: "OTP send failed", message: (error as Error).message, variant: "error" });
+    } finally {
+      if (channel === "email") setSendingEmailOtp(false);
+      if (channel === "sms") setSendingSmsOtp(false);
+    }
+  }
+
+  async function verifyOtp(channel: "email" | "sms"): Promise<void> {
+    if (channel === "email") setVerifyingEmailOtp(true);
+    if (channel === "sms") setVerifyingSmsOtp(true);
+    try {
+      const response = await fetch("/api/v1/public/queue/verify-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          channel,
+          email: values.guestEmail,
+          mobile: values.guestMobile,
+          otp: channel === "email" ? emailOtp : smsOtp,
+        }),
+      });
+      const payload = (await response.json().catch(() => ({}))) as { message?: string; proofToken?: string };
+      if (!response.ok || !payload.proofToken) {
+        throw new Error(payload.message ?? "Could not verify OTP");
+      }
+      if (channel === "email") {
+        setEmailVerified(true);
+        setEmailOtpProofToken(payload.proofToken);
+      } else {
+        setSmsVerified(true);
+        setSmsOtpProofToken(payload.proofToken);
+      }
+      pushToast({ title: "Verified", message: `${channel.toUpperCase()} verified successfully`, variant: "success" });
+    } catch (error) {
+      pushToast({ title: "Verification failed", message: (error as Error).message, variant: "error" });
+    } finally {
+      if (channel === "email") setVerifyingEmailOtp(false);
+      if (channel === "sms") setVerifyingSmsOtp(false);
+    }
+  }
 
   function validateCurrentStep(nextStep: number): boolean {
     const result = bookingSchema.safeParse({
@@ -312,6 +412,18 @@ export default function BookingPage(): JSX.Element {
     });
 
     if (result.success) {
+      if (nextStep > 1) {
+        if (emailVerificationRequired && (!values.guestEmail || !emailOtpProofToken || !emailVerified)) {
+          setErrors((current) => ({ ...current, guestEmail: "Email OTP verification is required" }));
+          setStep(1);
+          return false;
+        }
+        if (smsVerificationRequired && (!values.guestMobile || !smsOtpProofToken || !smsVerified)) {
+          setErrors((current) => ({ ...current, guestMobile: "SMS OTP verification is required" }));
+          setStep(1);
+          return false;
+        }
+      }
       setErrors({});
       return true;
     }
@@ -350,6 +462,8 @@ export default function BookingPage(): JSX.Element {
           guestName: values.guestName,
           guestMobile: values.guestMobile,
           guestEmail: values.guestEmail,
+          guestDob: values.guestDob || undefined,
+          guestAddress: values.guestAddress || undefined,
           visitDate: values.visitDate,
           ticketLines: values.ticketLines,
           couponCode: sanitizeCouponCode(values.couponCode) ?? undefined,
@@ -357,9 +471,11 @@ export default function BookingPage(): JSX.Element {
           idProofNumber: values.idProofNumber,
           idProofLabel: values.idProofLabel,
           paymentPlan: values.paymentPlan,
-          advancePercent: values.paymentPlan === "ADVANCE" ? values.advancePercent : undefined,
+          advanceAmount: values.paymentPlan === "ADVANCE" ? paymentBreakdown.payNow : undefined,
           paymentMethod: values.paymentMethod,
           paymentReference: values.paymentReference || undefined,
+          emailOtpProofToken: emailOtpProofToken ?? undefined,
+          smsOtpProofToken: smsOtpProofToken ?? undefined,
           participants: participants.map((p) => ({
             name: p.name,
             gender: p.gender,
@@ -401,6 +517,7 @@ export default function BookingPage(): JSX.Element {
         variant: "success",
       });
 
+      window.open(payload.redirectTo, "_blank", "noopener,noreferrer");
       router.push(payload.redirectTo);
     } catch (error) {
       pushToast({ title: "Booking failed", message: (error as Error).message, variant: "error" });
@@ -504,17 +621,93 @@ export default function BookingPage(): JSX.Element {
                   guestName: values.guestName,
                   guestMobile: values.guestMobile,
                   guestEmail: values.guestEmail,
+                  guestDob: values.guestDob,
+                  guestAddress: values.guestAddress,
                   visitDate: values.visitDate,
                   idProofType: values.idProofType,
                   idProofNumber: values.idProofNumber,
                   idProofLabel: values.idProofLabel,
                 }}
                 errors={errors}
-                onChange={(patch) => setValues((current) => ({ ...current, ...patch }))}
+                onChange={(patch) => {
+                  setValues((current) => {
+                    const nextPatch = { ...patch };
+
+                    if (typeof nextPatch.guestEmail === "string") {
+                      if (emailVerified) {
+                        delete nextPatch.guestEmail;
+                      } else {
+                        setEmailVerified(false);
+                        setEmailOtpProofToken(null);
+                      }
+                    }
+
+                    if (typeof nextPatch.guestMobile === "string") {
+                      setSmsVerified(false);
+                      setSmsOtpProofToken(null);
+                    }
+
+                    return { ...current, ...nextPatch };
+                  });
+                }}
                 minVisitDate={dateRange.min}
                 maxVisitDate={dateRange.max}
                 idProofRequired={idProofRequired}
+                emailLocked={emailVerified}
               />
+
+              {emailVerificationRequired || smsVerificationRequired ? (
+                <div className="rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4 space-y-3">
+                  <h3 className="text-sm font-semibold text-[var(--color-text)]">Contact Verification</h3>
+                  <p className="text-xs text-[var(--color-text-muted)]">
+                    Complete OTP verification before continuing to ticket selection.
+                  </p>
+
+                  {emailVerificationRequired ? (
+                    <div className="grid gap-3 md:grid-cols-[1fr_auto_auto] items-end">
+                      <Input
+                        label="Email OTP"
+                        value={emailOtp}
+                        onChange={(event) => setEmailOtp(event.target.value)}
+                        placeholder="6-digit OTP"
+                        disabled={emailVerified}
+                      />
+                      <Button
+                        variant="outline"
+                        onClick={() => void sendOtp("email")}
+                        loading={sendingEmailOtp}
+                        disabled={emailVerified}
+                      >
+                        Send Email OTP
+                      </Button>
+                      <Button
+                        onClick={() => void verifyOtp("email")}
+                        loading={verifyingEmailOtp}
+                        disabled={emailVerified || emailOtp.trim().length !== 6}
+                      >
+                        {emailVerified ? "Verified" : "Verify"}
+                      </Button>
+                    </div>
+                  ) : null}
+
+                  {smsVerificationRequired ? (
+                    <div className="grid gap-3 md:grid-cols-[1fr_auto_auto] items-end">
+                      <Input
+                        label="SMS OTP"
+                        value={smsOtp}
+                        onChange={(event) => setSmsOtp(event.target.value)}
+                        placeholder="6-digit OTP"
+                      />
+                      <Button variant="outline" onClick={() => void sendOtp("sms")} loading={sendingSmsOtp}>
+                        Send SMS OTP
+                      </Button>
+                      <Button onClick={() => void verifyOtp("sms")} loading={verifyingSmsOtp} disabled={smsOtp.trim().length !== 6}>
+                        {smsVerified ? "Verified" : "Verify"}
+                      </Button>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           ) : null}
 
@@ -581,15 +774,16 @@ export default function BookingPage(): JSX.Element {
                     />
                     {values.paymentPlan === "ADVANCE" ? (
                       <Input
-                        label="Advance %"
+                        label="Advance Amount (₹)"
                         type="number"
-                        min={10}
-                        max={90}
-                        value={String(values.advancePercent)}
+                        min={0}
+                        max={pricing.totalAmount}
+                        step="0.01"
+                        value={String(values.advanceAmount)}
                         onChange={(event) =>
                           setValues((current) => ({
                             ...current,
-                            advancePercent: Math.max(10, Math.min(90, Number(event.target.value || 30))),
+                            advanceAmount: Math.max(0, Number(event.target.value || 0)),
                           }))
                         }
                       />
@@ -637,6 +831,8 @@ export default function BookingPage(): JSX.Element {
                     <p>Name: {values.guestName}</p>
                     <p>Booked By: {String((session?.user as { name?: string } | undefined)?.name ?? "Staff")}</p>
                     <p>Mobile: {values.guestMobile}</p>
+                    <p>Date Of Birth: {values.guestDob ? parseDateOnlyToUtc(values.guestDob)?.toLocaleDateString("en-IN") : "Not provided"}</p>
+                    <p>Address: {values.guestAddress || "Not provided"}</p>
                     <p>Visit Date: {parseDateOnlyToUtc(values.visitDate)?.toLocaleDateString("en-IN")}</p>
                     <p>Total Guests: {totalGuests}</p>
                     {bookingCartItems.length > 0 ? (
@@ -654,7 +850,7 @@ export default function BookingPage(): JSX.Element {
                       </div>
                     ) : null}
                     <p>ID Proof: {values.idProofType ? `${values.idProofType} ••••` : "Not provided"}</p>
-                    <p>Payment Plan: {values.paymentPlan === "ADVANCE" ? `Advance ${values.advancePercent}%` : "Full Payment"}</p>
+                    <p>Payment Plan: {values.paymentPlan === "ADVANCE" ? `Advance ${formatCurrency(paymentBreakdown.payNow)}` : "Full Payment"}</p>
                     <p>Payment Method: {values.paymentMethod}</p>
                     <p>Transaction Ref: {values.paymentReference || "N/A"}</p>
                     <p>Pay Now: {formatCurrency(paymentBreakdown.payNow)}</p>

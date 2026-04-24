@@ -19,6 +19,18 @@ interface LockerZone {
   _count: { lockers: number };
 }
 
+interface LockerCategory {
+  id: string;
+  name: string;
+  code: string;
+  size: "SMALL" | "MEDIUM" | "LARGE";
+  baseRate: number;
+  gstRate: number;
+  sortOrder: number;
+  isActive: boolean;
+  _count?: { lockers: number };
+}
+
 interface Locker {
   id: string;
   number: string;
@@ -27,7 +39,9 @@ interface Locker {
   gstRate: number;
   status: "AVAILABLE" | "ASSIGNED" | "RETURNED" | "MAINTENANCE";
   zoneId: string;
+  categoryId?: string | null;
   zone: { id: string; name: string };
+  category?: { id: string; name: string; code: string } | null;
 }
 
 const STATUS_COLORS: Record<Locker["status"], string> = {
@@ -39,6 +53,7 @@ const STATUS_COLORS: Record<Locker["status"], string> = {
 
 export default function AdminLockersPage(): JSX.Element {
   const [zones, setZones] = useState<LockerZone[]>([]);
+  const [categories, setCategories] = useState<LockerCategory[]>([]);
   const [lockers, setLockers] = useState<Locker[]>([]);
   const [loading, setLoading] = useState(true);
   const [zonesLoading, setZonesLoading] = useState(true);
@@ -48,6 +63,7 @@ export default function AdminLockersPage(): JSX.Element {
   const [showForm, setShowForm] = useState(false);
   const [editingLocker, setEditingLocker] = useState<Locker | null>(null);
   const [formZoneId, setFormZoneId] = useState("");
+  const [formCategoryId, setFormCategoryId] = useState("");
   const [formNumber, setFormNumber] = useState("");
   const [formSize, setFormSize] = useState<"SMALL" | "MEDIUM" | "LARGE">("MEDIUM");
   const [formRate, setFormRate] = useState("299");
@@ -55,10 +71,20 @@ export default function AdminLockersPage(): JSX.Element {
   const [formStatus, setFormStatus] = useState<Locker["status"]>("AVAILABLE");
   const [formError, setFormError] = useState<string | null>(null);
   const [showZoneForm, setShowZoneForm] = useState(false);
+  const [showCategoryForm, setShowCategoryForm] = useState(false);
   const [editingZone, setEditingZone] = useState<LockerZone | null>(null);
   const [zoneName, setZoneName] = useState("");
   const [zoneLocation, setZoneLocation] = useState("");
   const [zoneError, setZoneError] = useState<string | null>(null);
+  const [editingCategory, setEditingCategory] = useState<LockerCategory | null>(null);
+  const [categoryName, setCategoryName] = useState("");
+  const [categoryCode, setCategoryCode] = useState("");
+  const [categorySize, setCategorySize] = useState<"SMALL" | "MEDIUM" | "LARGE">("MEDIUM");
+  const [categoryBaseRate, setCategoryBaseRate] = useState("299");
+  const [categoryGstRate, setCategoryGstRate] = useState("18");
+  const [categorySortOrder, setCategorySortOrder] = useState("0");
+  const [categoryIsActive, setCategoryIsActive] = useState(true);
+  const [categoryError, setCategoryError] = useState<string | null>(null);
 
   async function loadZones() {
     setZonesLoading(true);
@@ -75,6 +101,16 @@ export default function AdminLockersPage(): JSX.Element {
     } finally {
       setZonesLoading(false);
     }
+  }
+
+  async function loadCategories() {
+    const res = await fetch("/api/v1/lockers/categories");
+    if (!res.ok) {
+      setCategories([]);
+      return;
+    }
+    const payload = (await res.json()) as LockerCategory[];
+    setCategories(payload);
   }
 
   async function loadLockers() {
@@ -121,6 +157,7 @@ export default function AdminLockersPage(): JSX.Element {
 
     const payload = {
       zoneId: formZoneId,
+      categoryId: formCategoryId || undefined,
       number: formNumber.trim(),
       size: formSize,
       rate: Math.max(1, Number(formRate || "299")),
@@ -160,6 +197,7 @@ export default function AdminLockersPage(): JSX.Element {
     setEditingLocker(null);
     setFormError(null);
     setFormZoneId(zones[0]?.id ?? "");
+    setFormCategoryId(categories[0]?.id ?? "");
     setFormNumber("");
     setFormSize("MEDIUM");
     setFormRate("299");
@@ -172,6 +210,7 @@ export default function AdminLockersPage(): JSX.Element {
     setEditingLocker(locker);
     setFormError(null);
     setFormZoneId(locker.zoneId);
+    setFormCategoryId(locker.categoryId ?? "");
     setFormNumber(locker.number);
     setFormSize(locker.size);
     setFormRate(String(locker.rate));
@@ -186,6 +225,32 @@ export default function AdminLockersPage(): JSX.Element {
     setZoneLocation("");
     setZoneError(null);
     setShowZoneForm(true);
+  }
+
+  function openCreateCategory(): void {
+    setEditingCategory(null);
+    setCategoryName("");
+    setCategoryCode("");
+    setCategorySize("MEDIUM");
+    setCategoryBaseRate("299");
+    setCategoryGstRate("18");
+    setCategorySortOrder("0");
+    setCategoryIsActive(true);
+    setCategoryError(null);
+    setShowCategoryForm(true);
+  }
+
+  function openEditCategory(category: LockerCategory): void {
+    setEditingCategory(category);
+    setCategoryName(category.name);
+    setCategoryCode(category.code);
+    setCategorySize(category.size);
+    setCategoryBaseRate(String(category.baseRate));
+    setCategoryGstRate(String(category.gstRate));
+    setCategorySortOrder(String(category.sortOrder ?? 0));
+    setCategoryIsActive(Boolean(category.isActive));
+    setCategoryError(null);
+    setShowCategoryForm(true);
   }
 
   function openEditZone(zone: LockerZone): void {
@@ -236,15 +301,60 @@ export default function AdminLockersPage(): JSX.Element {
     await loadZones();
   }
 
+  async function saveCategory(): Promise<void> {
+    if (!categoryName.trim() || !categoryCode.trim()) {
+      setCategoryError("Category name and code are required.");
+      return;
+    }
+    const url = editingCategory ? `/api/v1/lockers/categories/${editingCategory.id}` : "/api/v1/lockers/categories";
+    const method = editingCategory ? "PUT" : "POST";
+    const res = await fetch(url, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: categoryName.trim(),
+        code: categoryCode.trim().toUpperCase(),
+        size: categorySize,
+        baseRate: Math.max(0, Number(categoryBaseRate || "0")),
+        gstRate: Math.max(0, Number(categoryGstRate || "0")),
+        sortOrder: Math.max(0, Number(categorySortOrder || "0")),
+        isActive: categoryIsActive,
+      }),
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      setCategoryError(body?.error ?? "Failed to save category.");
+      return;
+    }
+    setShowCategoryForm(false);
+    setEditingCategory(null);
+    await loadCategories();
+  }
+
+  async function deleteCategory(id: string): Promise<void> {
+    if (!confirm("Delete this locker category?")) return;
+    const res = await fetch(`/api/v1/lockers/categories/${id}`, { method: "DELETE" });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      setCategoryError(body?.error ?? "Failed to delete category.");
+      return;
+    }
+    await loadCategories();
+  }
+
   useEffect(() => {
     void loadZones();
+    void loadCategories();
   }, []);
 
   useEffect(() => {
     if (showForm && !formZoneId && zones.length > 0) {
       setFormZoneId(zones[0].id);
     }
-  }, [showForm, formZoneId, zones]);
+    if (showForm && !formCategoryId && categories.length > 0) {
+      setFormCategoryId(categories[0].id);
+    }
+  }, [showForm, formZoneId, zones, formCategoryId, categories]);
 
   useEffect(() => {
     void loadLockers();
@@ -322,6 +432,10 @@ export default function AdminLockersPage(): JSX.Element {
           <Plus className="mr-2 h-4 w-4" />
           Add Zone
         </Button>
+        <Button variant="outline" onClick={openCreateCategory}>
+          <Plus className="mr-2 h-4 w-4" />
+          Add Category
+        </Button>
         {zonesError ? <p className="w-full text-sm text-red-500">{zonesError}</p> : null}
       </div>
 
@@ -339,6 +453,24 @@ export default function AdminLockersPage(): JSX.Element {
                 <span className="text-[var(--color-muted)]">({zone._count.lockers})</span>
                 <button type="button" className="text-[var(--color-primary)]" onClick={() => openEditZone(zone)}>Edit</button>
                 <button type="button" className="text-red-500" onClick={() => void deleteZone(zone.id)}>Delete</button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
+        <p className="mb-3 text-sm font-medium text-[var(--color-text)]">Locker Categories</p>
+        {categories.length === 0 ? (
+          <p className="text-sm text-[var(--color-muted)]">No categories found. Add at least one locker category.</p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {categories.map((category) => (
+              <div key={category.id} className="inline-flex items-center gap-2 rounded border border-[var(--color-border)] px-2 py-1 text-xs">
+                <span>{category.name} ({category.code})</span>
+                <span className="text-[var(--color-muted)]">₹{Number(category.baseRate).toFixed(0)}</span>
+                <button type="button" className="text-[var(--color-primary)]" onClick={() => openEditCategory(category)}>Edit</button>
+                <button type="button" className="text-red-500" onClick={() => void deleteCategory(category.id)}>Delete</button>
               </div>
             ))}
           </div>
@@ -367,6 +499,9 @@ export default function AdminLockersPage(): JSX.Element {
               <p className="text-xs text-[var(--color-muted)]">
                 {locker.zone.name} · {locker.size}
               </p>
+              {locker.category ? (
+                <p className="text-xs text-[var(--color-muted)]">Category: {locker.category.name} ({locker.category.code})</p>
+              ) : null}
               <p className="text-xs text-[var(--color-muted)]">
                 Rate: ₹{locker.rate.toFixed(2)} · GST {locker.gstRate?.toFixed(1) ?? "18"}%
               </p>
@@ -429,6 +564,13 @@ export default function AdminLockersPage(): JSX.Element {
               placeholder="Select zone"
               options={zones.map((zone) => ({ label: zone.name, value: zone.id }))}
             />
+            <Select
+              label="Category"
+              value={formCategoryId}
+              onChange={(event) => setFormCategoryId(event.target.value)}
+              placeholder="Select category"
+              options={[{ label: "Uncategorized", value: "" }, ...categories.map((category) => ({ label: `${category.name} (${category.code})`, value: category.id }))]}
+            />
             <Input label="Locker Number" value={formNumber} onChange={(event) => setFormNumber(event.target.value)} />
             <Select
               label="Size"
@@ -490,6 +632,48 @@ export default function AdminLockersPage(): JSX.Element {
             <div className="flex justify-end gap-2">
               <Button variant="ghost" onClick={() => setShowZoneForm(false)}>Cancel</Button>
               <Button onClick={() => void saveZone()}>{editingZone ? "Update Zone" : "Create Zone"}</Button>
+            </div>
+          </div>
+        </Modal>
+      ) : null}
+      {showCategoryForm ? (
+        <Modal
+          open
+          title={editingCategory ? "Edit Locker Category" : "Add Locker Category"}
+          onClose={() => {
+            setShowCategoryForm(false);
+            setEditingCategory(null);
+          }}
+        >
+          <div className="space-y-3">
+            <Input label="Category Name" value={categoryName} onChange={(event) => setCategoryName(event.target.value)} />
+            <Input label="Category Code" value={categoryCode} onChange={(event) => setCategoryCode(event.target.value)} />
+            <Select
+              label="Size"
+              value={categorySize}
+              onChange={(event) => setCategorySize(event.target.value as "SMALL" | "MEDIUM" | "LARGE")}
+              options={[
+                { label: "Small", value: "SMALL" },
+                { label: "Medium", value: "MEDIUM" },
+                { label: "Large", value: "LARGE" },
+              ]}
+            />
+            <Input label="Base Rate" type="number" value={categoryBaseRate} onChange={(event) => setCategoryBaseRate(event.target.value)} />
+            <Input label="GST Rate (%)" type="number" value={categoryGstRate} onChange={(event) => setCategoryGstRate(event.target.value)} />
+            <Input label="Sort Order" type="number" value={categorySortOrder} onChange={(event) => setCategorySortOrder(event.target.value)} />
+            <Select
+              label="Active"
+              value={categoryIsActive ? "1" : "0"}
+              onChange={(event) => setCategoryIsActive(event.target.value === "1")}
+              options={[
+                { label: "Active", value: "1" },
+                { label: "Inactive", value: "0" },
+              ]}
+            />
+            {categoryError ? <p className="text-sm text-red-500">{categoryError}</p> : null}
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setShowCategoryForm(false)}>Cancel</Button>
+              <Button onClick={() => void saveCategory()}>{editingCategory ? "Update Category" : "Create Category"}</Button>
             </div>
           </div>
         </Modal>

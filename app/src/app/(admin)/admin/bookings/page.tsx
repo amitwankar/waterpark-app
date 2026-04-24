@@ -66,6 +66,8 @@ interface CreateBookingDraft {
   guestName: string;
   guestMobile: string;
   guestEmail: string;
+  guestDob?: string;
+  guestAddress?: string;
   visitDate: string;
   ticketLines: TicketLine[];
   couponCode: string;
@@ -73,7 +75,7 @@ interface CreateBookingDraft {
   idProofNumber?: string;
   idProofLabel?: string;
   paymentPlan: "FULL" | "ADVANCE";
-  advancePercent: number;
+  advanceAmount: number;
   paymentMethod: "GATEWAY" | "MANUAL_UPI" | "CASH" | "CARD";
   paymentReference: string;
   customDiscountType: "NONE" | "PERCENTAGE" | "AMOUNT";
@@ -171,6 +173,8 @@ const DEFAULT_CREATE_DRAFT: CreateBookingDraft = {
   guestName: "",
   guestMobile: "",
   guestEmail: "",
+  guestDob: "",
+  guestAddress: "",
   visitDate: "",
   ticketLines: [],
   couponCode: "",
@@ -178,7 +182,7 @@ const DEFAULT_CREATE_DRAFT: CreateBookingDraft = {
   idProofNumber: "",
   idProofLabel: "",
   paymentPlan: "FULL",
-  advancePercent: 30,
+  advanceAmount: 0,
   paymentMethod: "CASH",
   paymentReference: "",
   customDiscountType: "NONE",
@@ -403,12 +407,12 @@ export default function AdminBookingsPage(): JSX.Element {
 
   const paymentBreakdown = useMemo(() => {
     if (createDraft.paymentPlan === "ADVANCE") {
-      const payNow = Math.ceil((pricing.totalAmount * createDraft.advancePercent) / 100);
+      const payNow = Math.min(pricing.totalAmount, Math.max(0, Number(createDraft.advanceAmount || 0)));
       const balanceDue = Math.max(0, Number((pricing.totalAmount - payNow).toFixed(2)));
       return { payNow, balanceDue };
     }
     return { payNow: pricing.totalAmount, balanceDue: 0 };
-  }, [createDraft.paymentPlan, createDraft.advancePercent, pricing.totalAmount]);
+  }, [createDraft.paymentPlan, createDraft.advanceAmount, pricing.totalAmount]);
 
   async function loadBookings(): Promise<void> {
     setLoading(true);
@@ -918,6 +922,8 @@ export default function AdminBookingsPage(): JSX.Element {
           guestName: createDraft.guestName,
           guestMobile: createDraft.guestMobile.replace(/\D/g, "").replace(/^91(?=\d{10}$)/, ""),
           guestEmail: createDraft.guestEmail.trim(),
+          guestDob: createDraft.guestDob || undefined,
+          guestAddress: createDraft.guestAddress || undefined,
           visitDate: createDraft.visitDate,
           ticketLines: createDraft.ticketLines,
           couponCode: sanitizeCouponCode(createDraft.couponCode) ?? undefined,
@@ -925,7 +931,7 @@ export default function AdminBookingsPage(): JSX.Element {
           idProofNumber: createDraft.idProofNumber,
           idProofLabel: createDraft.idProofLabel,
           paymentPlan: createDraft.paymentPlan,
-          advancePercent: createDraft.paymentPlan === "ADVANCE" ? createDraft.advancePercent : undefined,
+          advanceAmount: createDraft.paymentPlan === "ADVANCE" ? paymentBreakdown.payNow : undefined,
           paymentMethod: createDraft.paymentMethod,
           paymentReference: createDraft.paymentReference || undefined,
           customDiscountType: createDraft.customDiscountType,
@@ -944,7 +950,7 @@ export default function AdminBookingsPage(): JSX.Element {
           })),
         }),
       });
-      const payload = (await response.json().catch(() => null)) as { message?: string; booking?: { bookingNumber?: string } } | null;
+      const payload = (await response.json().catch(() => null)) as { message?: string; booking?: { bookingNumber?: string }; redirectTo?: string } | null;
       if (!response.ok) {
         const firstError = getApiValidationMessage((payload as { errors?: unknown } | null)?.errors);
         pushToast({
@@ -960,6 +966,9 @@ export default function AdminBookingsPage(): JSX.Element {
         message: payload?.booking?.bookingNumber ? `Booking number ${payload.booking.bookingNumber}` : undefined,
         variant: "success",
       });
+      if (payload?.redirectTo) {
+        window.open(payload.redirectTo, "_blank", "noopener,noreferrer");
+      }
       setAddOpen(false);
       setAddStep(1);
       setCreateDraft({
@@ -1159,14 +1168,16 @@ export default function AdminBookingsPage(): JSX.Element {
           <StepIndicator steps={ADD_STEPS} currentStep={addStep} />
 
           {addStep === 1 ? (
-            <Step1GuestDetails
-              value={{
-                guestName: createDraft.guestName,
-                guestMobile: createDraft.guestMobile,
-                guestEmail: createDraft.guestEmail,
-                visitDate: createDraft.visitDate,
-                idProofType: createDraft.idProofType,
-                idProofNumber: createDraft.idProofNumber,
+              <Step1GuestDetails
+                value={{
+                  guestName: createDraft.guestName,
+                  guestMobile: createDraft.guestMobile,
+                  guestEmail: createDraft.guestEmail,
+                  guestDob: createDraft.guestDob,
+                  guestAddress: createDraft.guestAddress,
+                  visitDate: createDraft.visitDate,
+                  idProofType: createDraft.idProofType,
+                  idProofNumber: createDraft.idProofNumber,
                 idProofLabel: createDraft.idProofLabel,
               }}
               errors={formErrors}
@@ -1556,15 +1567,16 @@ export default function AdminBookingsPage(): JSX.Element {
                     />
                     {createDraft.paymentPlan === "ADVANCE" ? (
                       <Input
-                        label="Advance %"
+                        label="Advance Amount (₹)"
                         type="number"
-                        min={10}
-                        max={90}
-                        value={String(createDraft.advancePercent)}
+                        min={0}
+                        max={pricing.totalAmount}
+                        step="0.01"
+                        value={String(createDraft.advanceAmount)}
                         onChange={(event) =>
                           setCreateDraft((current) => ({
                             ...current,
-                            advancePercent: Math.max(10, Math.min(90, Number(event.target.value || 30))),
+                            advanceAmount: Math.max(0, Number(event.target.value || 0)),
                           }))
                         }
                       />
@@ -1613,10 +1625,12 @@ export default function AdminBookingsPage(): JSX.Element {
                     <p>Guest: {createDraft.guestName}</p>
                     <p>Booked By: {String((session?.user as { name?: string } | undefined)?.name ?? "Staff")}</p>
                     <p>Mobile: {createDraft.guestMobile}</p>
+                    <p>Date Of Birth: {createDraft.guestDob ? parseDateOnlyToUtc(createDraft.guestDob)?.toLocaleDateString("en-IN") : "Not provided"}</p>
+                    <p>Address: {createDraft.guestAddress || "Not provided"}</p>
                     <p>Visit Date: {parseDateOnlyToUtc(createDraft.visitDate)?.toLocaleDateString("en-IN")}</p>
                     <p>Total Guests: {totalGuests}</p>
                     <p>ID Proof: {createDraft.idProofType ? `${createDraft.idProofType} ••••` : "Not provided"}</p>
-                    <p>Payment Plan: {createDraft.paymentPlan === "ADVANCE" ? `Advance ${createDraft.advancePercent}%` : "Full Payment"}</p>
+                    <p>Payment Plan: {createDraft.paymentPlan === "ADVANCE" ? `Advance ${formatCurrency(paymentBreakdown.payNow)}` : "Full Payment"}</p>
                     <p>Payment Method: {createDraft.paymentMethod}</p>
                     <p>Transaction Ref: {createDraft.paymentReference || "N/A"}</p>
                     <p>Packages/Add-ons: {createDraft.packageLines.length + createDraft.foodLines.length + createDraft.lockerLines.length + createDraft.costumeLines.length + createDraft.rideLines.length}</p>

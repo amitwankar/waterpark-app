@@ -12,7 +12,7 @@ export interface BookingFoodLineMeta {
 }
 
 export interface BookingLockerLineMeta {
-  lockerId: string;
+  lockerCategoryId: string;
   quantity: number;
 }
 

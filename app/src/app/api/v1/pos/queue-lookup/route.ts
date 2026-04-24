@@ -7,7 +7,7 @@ import { requireSubRole } from "@/lib/session";
 type PosPreload = {
   packageLines?: Array<{ packageId: string; quantity: number }>;
   foodLines?: Array<{ foodItemId: string; foodVariantId?: string; quantity: number }>;
-  lockerLines?: Array<{ lockerId: string; quantity: number }>;
+  lockerLines?: Array<{ lockerCategoryId?: string; lockerId?: string; quantity: number }>;
   costumeLines?: Array<{ costumeItemId: string; quantity: number }>;
   rideLines?: Array<{ rideId: string; quantity: number }>;
   customDiscountType?: "NONE" | "PERCENTAGE" | "AMOUNT";
@@ -28,12 +28,15 @@ export async function GET(req: NextRequest) {
 
   const searchParams = new URL(req.url).searchParams;
   const q = searchParams.get("q")?.trim();
-  if (!q || q.length < 3) {
+  const todayOnly = searchParams.get("today") === "1";
+  const countOnly = searchParams.get("countOnly") === "1";
+  const take = Math.max(1, Math.min(100, Number(searchParams.get("take") ?? 10)));
+  if (!todayOnly && (!q || q.length < 3)) {
     requestLogger.warn({ queryLength: q?.length ?? 0 }, "POS queue lookup query too short");
     return NextResponse.json({ error: "Query too short" }, { status: 400 });
   }
 
-  requestLogger.info({ query: q.slice(0, 16) }, "POS queue lookup started");
+  requestLogger.info({ query: q?.slice(0, 16) ?? null, todayOnly, countOnly }, "POS queue lookup started");
 
   const todayIst = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Kolkata",
@@ -43,18 +46,29 @@ export async function GET(req: NextRequest) {
   }).format(new Date());
   const todayDate = new Date(`${todayIst}T00:00:00.000Z`);
 
+  const where = {
+    visitDate: todayDate,
+    status: "PENDING" as const,
+    ...(q
+      ? {
+          OR: [
+            { id: q },
+            { queueCode: { contains: q, mode: "insensitive" as const } },
+            { guestMobile: { contains: q } },
+            { guestName: { contains: q, mode: "insensitive" as const } },
+          ],
+        }
+      : {}),
+  };
+
+  if (countOnly) {
+    const count = await db.queueRequest.count({ where });
+    return NextResponse.json({ count });
+  }
+
   const rows = await db.queueRequest.findMany({
-    where: {
-      visitDate: todayDate,
-      status: "PENDING",
-      OR: [
-        { id: q },
-        { queueCode: { contains: q, mode: "insensitive" } },
-        { guestMobile: { contains: q } },
-        { guestName: { contains: q, mode: "insensitive" } },
-      ],
-    },
-    take: 10,
+    where,
+    take,
     orderBy: { createdAt: "asc" },
   });
 
@@ -89,4 +103,3 @@ export async function GET(req: NextRequest) {
   requestLogger.info({ count: results.length }, "POS queue lookup completed");
   return NextResponse.json(results);
 }
-

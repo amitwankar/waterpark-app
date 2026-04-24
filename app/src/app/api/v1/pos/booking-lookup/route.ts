@@ -21,13 +21,16 @@ export async function GET(req: NextRequest) {
 
   const searchParams = new URL(req.url).searchParams;
   const q = searchParams.get("q")?.trim();
+  const todayOnly = searchParams.get("today") === "1";
+  const countOnly = searchParams.get("countOnly") === "1";
+  const take = Math.max(1, Math.min(100, Number(searchParams.get("take") ?? 10)));
   const purpose = searchParams.get("purpose") === "service" ? "service" : "balance";
-  if (!q || q.length < 3) {
+  if (!todayOnly && (!q || q.length < 3)) {
     requestLogger.warn({ queryLength: q?.length ?? 0 }, "POS booking lookup query too short");
     return NextResponse.json({ error: "Query too short" }, { status: 400 });
   }
 
-  requestLogger.info({ query: q.slice(0, 12) }, "POS booking lookup started");
+  requestLogger.info({ query: q?.slice(0, 12) ?? null, todayOnly, countOnly }, "POS booking lookup started");
   const todayIst = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Kolkata",
     year: "numeric",
@@ -36,30 +39,49 @@ export async function GET(req: NextRequest) {
   }).format(new Date());
   const todayDate = new Date(`${todayIst}T00:00:00.000Z`);
 
+  const baseWhere = {
+    ...(purpose === "service"
+      ? { status: "CHECKED_IN" as const, checkedInAt: { not: null } }
+      : {
+          status: { in: ["PENDING", "CONFIRMED"] as const },
+          visitDate: { gte: todayDate },
+          checkedInAt: null,
+          transactions: { none: { posSessionId: { not: null } } },
+        }),
+    ...(q
+      ? {
+          OR: [
+            { id: q },
+            { bookingNumber: { contains: q, mode: "insensitive" as const } },
+            { guestMobile: { contains: q } },
+            { guestName: { contains: q, mode: "insensitive" as const } },
+          ],
+        }
+      : {}),
+  };
+
+  if (countOnly) {
+    const count = await db.booking.count({ where: baseWhere });
+    return NextResponse.json({ count });
+  }
+
   const bookings = await db.booking.findMany({
-    where: {
-      ...(purpose === "service"
-        ? { status: "CHECKED_IN" as const, checkedInAt: { not: null } }
-        : {
-            status: { in: ["PENDING", "CONFIRMED"] as const },
-            visitDate: { gte: todayDate },
-            checkedInAt: null,
-            transactions: { none: { posSessionId: { not: null } } },
-          }),
-      OR: [
-        { id: q },
-        { bookingNumber: { contains: q, mode: "insensitive" } },
-        { guestMobile: { contains: q } },
-        { guestName: { contains: q, mode: "insensitive" } },
-      ],
-    },
-    take: 10,
-    orderBy: { visitDate: "asc" },
+    where: baseWhere,
+    take,
+    orderBy: [{ visitDate: "asc" }, { createdAt: "desc" }],
     include: {
       transactions: { where: { status: "PAID" }, select: { amount: true } },
       lockerAssignments: {
         where: { returnedAt: null },
         select: { id: true, notes: true },
+      },
+      lockerEntitlements: {
+        select: {
+          lockerCategoryId: true,
+          quantity: true,
+          deliveredQuantity: true,
+          category: { select: { id: true, name: true, code: true } },
+        },
       },
       costumeRentals: {
         where: { returnedAt: null },
@@ -86,8 +108,14 @@ export async function GET(req: NextRequest) {
     const parsedNotes = splitBookingNotes(b.notes);
     const paid = b.transactions.reduce((s, t) => s + Number(t.amount), 0);
     const balance = Math.round((Number(b.totalAmount) - paid) * 100) / 100;
-    const lockerPending = b.lockerAssignments.filter((row) => row.notes?.includes("PREBOOKED:PENDING")).length;
-    const lockerDelivered = b.lockerAssignments.filter((row) => row.notes?.includes("PREBOOKED:DELIVERED")).length;
+    const entitlementPending = b.lockerEntitlements.reduce((sum, row) => {
+      return sum + Math.max(0, row.quantity - row.deliveredQuantity);
+    }, 0);
+    const entitlementDelivered = b.lockerEntitlements.reduce((sum, row) => sum + row.deliveredQuantity, 0);
+    const legacyLockerPending = b.lockerAssignments.filter((row) => row.notes?.includes("PREBOOKED:PENDING")).length;
+    const legacyLockerDelivered = b.lockerAssignments.filter((row) => row.notes?.includes("PREBOOKED:DELIVERED")).length;
+    const lockerPending = entitlementPending + legacyLockerPending;
+    const lockerDelivered = entitlementDelivered + legacyLockerDelivered;
     const costumePending = b.costumeRentals.filter((row) => row.notes?.includes("PREBOOKED:PENDING")).length;
     const costumeDelivered = b.costumeRentals.filter((row) => row.notes?.includes("PREBOOKED:DELIVERED")).length;
     const foodQty = b.foodOrders.reduce((sum, order) => {
@@ -112,7 +140,18 @@ export async function GET(req: NextRequest) {
         gstRate: Number(bt.gstRate),
       })),
       services: {
-        locker: { pending: lockerPending, delivered: lockerDelivered },
+        locker: {
+          pending: lockerPending,
+          delivered: lockerDelivered,
+          byCategory: b.lockerEntitlements.map((row) => ({
+            lockerCategoryId: row.lockerCategoryId,
+            name: row.category.name,
+            code: row.category.code,
+            quantity: row.quantity,
+            delivered: row.deliveredQuantity,
+            pending: Math.max(0, row.quantity - row.deliveredQuantity),
+          })),
+        },
         costume: { pending: costumePending, delivered: costumeDelivered },
         food: { pendingQty: foodQty },
       },

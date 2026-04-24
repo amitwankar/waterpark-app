@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { db } from "@/lib/db";
 import { getIstTodayDateOnly, normalizeQueuePrefix } from "@/lib/queue-public";
+import { normalizeQueueVerificationMode } from "@/lib/queue-verification";
 
 type FoodOption = {
   id: string;
@@ -14,10 +15,9 @@ type FoodOption = {
 };
 
 type LockerProduct = {
-  lockerId: string;
+  lockerCategoryId: string;
   label: string;
-  zoneId: string;
-  zoneName: string;
+  code: string;
   size: string;
   rate: number;
   gstRate: number;
@@ -39,11 +39,12 @@ function normalizeTagBase(tagNumber: string): string {
 }
 
 export async function GET() {
-  const [config, ticketTypes, packages, foodItems, foodVariants, lockers, costumes, rides, queueCountToday] = await Promise.all([
+  const [config, ticketTypes, packages, foodItems, foodVariants, lockerCategories, costumes, rides, queueCountToday] = await Promise.all([
     db.parkConfig.findFirst({
       select: {
         queueLimitPerDay: true,
         queuePrefix: true,
+        queueVerificationMode: true,
       },
     }),
     db.ticketType.findMany({
@@ -66,10 +67,10 @@ export async function GET() {
       orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
       select: { id: true, foodItemId: true, name: true, price: true },
     }),
-    db.locker.findMany({
+    db.lockerCategory.findMany({
       where: { isActive: true },
-      include: { zone: { select: { id: true, name: true, isActive: true } } },
-      orderBy: [{ zoneId: "asc" }, { size: "asc" }, { number: "asc" }],
+      orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+      select: { id: true, name: true, code: true, size: true, baseRate: true, gstRate: true },
     }),
     db.costumeItem.findMany({
       where: { isActive: true, status: "AVAILABLE" },
@@ -113,22 +114,14 @@ export async function GET() {
     }
   }
 
-  const lockerProductsMap = new Map<string, LockerProduct>();
-  for (const locker of lockers) {
-    if (!locker.zone?.isActive) continue;
-    const key = `${locker.zoneId}:${locker.size}`;
-    if (!lockerProductsMap.has(key)) {
-      lockerProductsMap.set(key, {
-        lockerId: locker.id,
-        zoneId: locker.zoneId,
-        zoneName: locker.zone.name,
-        size: locker.size,
-        label: `${locker.zone.name} · ${locker.size}`,
-        rate: Number(locker.rate),
-        gstRate: Number(locker.gstRate ?? 0),
-      });
-    }
-  }
+  const lockerProducts: LockerProduct[] = lockerCategories.map((category) => ({
+    lockerCategoryId: category.id,
+    code: category.code,
+    size: category.size,
+    label: `${category.name} (${category.code})`,
+    rate: Number(category.baseRate),
+    gstRate: Number(category.gstRate ?? 0),
+  }));
 
   const costumeGroupsMap = new Map<string, CostumeGroup>();
   for (const item of costumes) {
@@ -156,6 +149,7 @@ export async function GET() {
       limitPerDay: Number(config?.queueLimitPerDay ?? 0),
       prefix: normalizeQueuePrefix(config?.queuePrefix),
       todayCount: queueCountToday,
+      verificationMode: normalizeQueueVerificationMode(config?.queueVerificationMode),
     },
     tickets: ticketTypes.map((t) => ({
       id: t.id,
@@ -171,7 +165,7 @@ export async function GET() {
       gstRate: Number(p.gstRate ?? 0),
     })),
     foodOptions,
-    lockerProducts: Array.from(lockerProductsMap.values()),
+    lockerProducts,
     costumeGroups: Array.from(costumeGroupsMap.values()),
     rides: rides.map((r) => ({
       id: r.id,
@@ -182,4 +176,3 @@ export async function GET() {
     })),
   });
 }
-
