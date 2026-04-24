@@ -8,7 +8,7 @@ import { MOBILE_REGEX } from "@/types/auth";
 const createSchema = z.object({
   name: z.string().min(1).max(150),
   mobile: z.string().regex(MOBILE_REGEX, "Invalid Indian mobile number"),
-  email: z.string().email().optional(),
+  email: z.string().email(),
   password: z.string().min(8).max(64),
   subRole: z.enum([
     "TICKET_COUNTER",
@@ -91,6 +91,7 @@ export async function POST(req: NextRequest) {
 
   const { employeeCode, department, joiningDate, password, subRole, ...userFields } =
     parsed.data;
+  const normalizedEmail = userFields.email.trim().toLowerCase();
 
   // Check for duplicate mobile
   const existing = await db.user.findFirst({
@@ -99,6 +100,17 @@ export async function POST(req: NextRequest) {
   if (existing) {
     return NextResponse.json(
       { error: "Mobile number already registered" },
+      { status: 409 }
+    );
+  }
+
+  const emailExists = await db.user.findFirst({
+    where: { email: normalizedEmail },
+    select: { id: true },
+  });
+  if (emailExists) {
+    return NextResponse.json(
+      { error: "Email already registered" },
       { status: 409 }
     );
   }
@@ -137,6 +149,7 @@ export async function POST(req: NextRequest) {
     const created = await tx.user.create({
       data: {
         ...userFields,
+        email: normalizedEmail,
         role: "EMPLOYEE",
         subRole,
         passwordHash,

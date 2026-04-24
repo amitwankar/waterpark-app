@@ -24,9 +24,11 @@ export function InviteUserDrawer({ open, onClose, onSaved }: InviteUserDrawerPro
   const [department, setDepartment] = useState("");
   const [joiningDate, setJoiningDate] = useState(new Date().toISOString().slice(0, 10));
   const [departments, setDepartments] = useState<Array<{ id: string; name: string; isActive: boolean }>>([]);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
+    setError(null);
     void fetch("/api/v1/settings/departments")
       .then((res) => res.json())
       .then((rows) => setDepartments((rows as Array<{ id: string; name: string; isActive: boolean }>).filter((row) => row.isActive)))
@@ -38,7 +40,7 @@ export function InviteUserDrawer({ open, onClose, onSaved }: InviteUserDrawerPro
       <div className="space-y-3">
         <Input label="Name" value={name} onChange={(event) => setName(event.target.value)} />
         <Input label="Mobile" value={mobile} onChange={(event) => setMobile(event.target.value)} />
-        <Input label="Email" value={email} onChange={(event) => setEmail(event.target.value)} />
+        <Input label="Email *" value={email} onChange={(event) => setEmail(event.target.value)} />
         <Input label="Temporary Password" value={password} onChange={(event) => setPassword(event.target.value)} />
 
         <Select
@@ -74,6 +76,10 @@ export function InviteUserDrawer({ open, onClose, onSaved }: InviteUserDrawerPro
         <Button
           loading={isPending}
           onClick={() => {
+            if (!email.trim()) {
+              setError("Email is required for staff login.");
+              return;
+            }
             startTransition(() => {
               void fetch("/api/v1/staff", {
                 method: "POST",
@@ -81,14 +87,19 @@ export function InviteUserDrawer({ open, onClose, onSaved }: InviteUserDrawerPro
                 body: JSON.stringify({
                   name,
                   mobile,
-                  email,
+                  email: email.trim().toLowerCase(),
                   password,
                   subRole,
                   employeeCode,
                   department,
                   joiningDate,
                 }),
-              }).then(() => {
+              }).then(async (res) => {
+                if (!res.ok) {
+                  const payload = (await res.json().catch(() => null)) as { error?: string } | null;
+                  setError(payload?.error ?? "Failed to invite staff user");
+                  return;
+                }
                 onSaved();
                 onClose();
               });
@@ -97,6 +108,7 @@ export function InviteUserDrawer({ open, onClose, onSaved }: InviteUserDrawerPro
         >
           Invite Staff User
         </Button>
+        {error ? <p className="text-sm text-red-500">{error}</p> : null}
       </div>
     </Drawer>
   );

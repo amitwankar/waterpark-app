@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 
 interface EmailPasswordFormProps {
-  onSubmit: (payload: { email: string; password: string; rememberMe: boolean; captchaToken?: string }) => Promise<void>;
+  onSubmit: (payload: { identifier: string; password: string; rememberMe: boolean; captchaToken?: string }) => Promise<void>;
   loading?: boolean;
   error?: string;
 }
@@ -33,13 +33,13 @@ export function EmailPasswordForm({ onSubmit, loading, error }: EmailPasswordFor
       onSubmit={async (event) => {
         event.preventDefault();
         const form = new FormData(event.currentTarget);
-        const email = String(form.get("email") ?? "").trim().toLowerCase();
+        const identifier = String(form.get("identifier") ?? "").trim();
         const password = String(form.get("password") ?? "");
         const rememberMe = String(form.get("rememberMe") ?? "") === "on";
-        await onSubmit({ email, password, rememberMe });
+        await onSubmit({ identifier, password, rememberMe });
       }}
     >
-      <Input name="email" type="email" label="Email" required placeholder="you@example.com" />
+      <Input name="identifier" type="text" label="Email or Mobile" required placeholder="you@example.com or 9876543210" />
       <div className="space-y-2">
         <Input name="password" type="password" label="Password" required placeholder="Enter password" />
         <PasswordStrengthMeter valueResolver={strength} />

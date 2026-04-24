@@ -32,44 +32,57 @@ export function LoginTabs({ returnUrl }: LoginTabsProps): JSX.Element {
 
   const callbackUrl = useMemo(() => returnUrl ?? searchParams.get("returnUrl") ?? "/", [returnUrl, searchParams]);
 
-  async function handleEmailLogin(payload: { email: string; password: string; rememberMe: boolean }): Promise<void> {
+  async function handleEmailLogin(payload: { identifier: string; password: string; rememberMe: boolean }): Promise<void> {
     setLoading(true);
     setError(undefined);
     try {
-      const response = await fetch("/api/auth/sign-in/email", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: payload.email,
-          password: payload.password,
-          rememberMe: payload.rememberMe,
-          callbackURL: callbackUrl,
-        }),
-      });
+      const raw = payload.identifier.trim();
+      const mobile = raw.replace(/\D/g, "");
+      const isMobileLogin = /^\d{10}$/.test(mobile);
+      const safeCallback = callbackUrl.startsWith("/") ? callbackUrl : "/";
+
+      const response = await fetch(
+        isMobileLogin ? "/api/v1/auth/login" : "/api/v1/auth/login/email",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(
+            isMobileLogin
+              ? {
+                  mobile,
+                  password: payload.password,
+                }
+              : {
+                  email: raw.toLowerCase(),
+                  password: payload.password,
+                  rememberMe: payload.rememberMe,
+                },
+          ),
+        },
+      );
+
+      const json = (await response.json().catch(() => null)) as
+        | { role?: string; redirectTo?: string; message?: string }
+        | null;
 
       if (!response.ok) {
-        setError("Invalid email or password");
+        setError(
+          json?.message ??
+            (isMobileLogin ? "Invalid mobile or password" : "Invalid email or password"),
+        );
         return;
       }
 
-      const sessionResponse = await fetch("/api/auth/get-session", { cache: "no-store" });
-      if (sessionResponse.ok) {
-        const sessionJson = (await sessionResponse.json()) as
-          | { user?: { role?: string }; session?: { user?: { role?: string } }; data?: { user?: { role?: string } } }
-          | null;
-        const role =
-          sessionJson?.user?.role ??
-          sessionJson?.session?.user?.role ??
-          sessionJson?.data?.user?.role;
-        if (role === "ADMIN") {
-          window.location.href = callbackUrl === "/" ? "/admin/dashboard" : callbackUrl;
-          return;
-        }
-        if (role === "EMPLOYEE") {
-          window.location.href = callbackUrl === "/" ? "/staff/pos" : callbackUrl;
-          return;
-        }
+      if (json?.role === "ADMIN") {
+        window.location.href = safeCallback === "/" ? (json.redirectTo ?? "/admin/dashboard") : safeCallback;
+        return;
       }
+      if (json?.role === "EMPLOYEE") {
+        const allowedCallback = safeCallback.startsWith("/staff");
+        window.location.href = allowedCallback ? safeCallback : (json.redirectTo ?? "/staff/pos");
+        return;
+      }
+
       await authClient.signOut();
       setError("This login is for admin/staff accounts only.");
     } finally {

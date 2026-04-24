@@ -23,7 +23,7 @@ const updateSchema = z.object({
     ])
     .optional(),
   isActive: z.boolean().optional(),
-  department: z.string().optional(),
+  department: z.string().nullable().optional(),
 });
 
 export async function GET(

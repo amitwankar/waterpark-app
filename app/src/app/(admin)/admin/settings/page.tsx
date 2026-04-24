@@ -108,12 +108,24 @@ export default function SettingsPage(): JSX.Element {
     void Promise.all([
       fetch("/api/v1/settings").then((res) => res.json()),
       fetch("/api/v1/settings/holidays").then((res) => res.json()),
+      fetch("/api/v1/admin-users").then((res) => res.json()),
       fetch("/api/v1/staff").then((res) => res.json()),
       fetch("/api/v1/settings/audit-log?page=1&pageSize=20").then((res) => res.json()),
-    ]).then(([settingsPayload, holidayRows, staffRows, auditPayload]) => {
+    ]).then(([settingsPayload, holidayRows, adminRows, staffRows, auditPayload]) => {
       setSettings(settingsPayload as SettingsPayload);
       setHolidays(holidayRows as HolidayItem[]);
 
+      const adminUsers = (adminRows as Array<{ id: string; name: string; mobile: string; email: string | null; isActive: boolean }>).map(
+        (row) => ({
+          id: row.id,
+          name: row.name,
+          mobile: row.mobile,
+          email: row.email,
+          role: "ADMIN",
+          subRole: null,
+          isActive: row.isActive,
+        }),
+      );
       const staffUsers = (staffRows as Array<{ id: string; name: string; mobile: string; email: string | null; subRole: string | null; isActive: boolean }>).map(
         (row) => ({
           id: row.id,
@@ -125,7 +137,7 @@ export default function SettingsPage(): JSX.Element {
           isActive: row.isActive,
         }),
       );
-      setUsers(staffUsers);
+      setUsers([...adminUsers, ...staffUsers]);
       setAuditRows((auditPayload?.rows ?? []) as AuditLogRow[]);
     });
   }, []);

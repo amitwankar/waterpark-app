@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 
+import { useToast } from "@/components/feedback/Toast";
 import { InviteUserDrawer } from "@/components/settings/InviteUserDrawer";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -21,28 +22,86 @@ export interface UserManagementProps {
   initialUsers: UserRow[];
 }
 
+async function fetchAllUsers(): Promise<UserRow[]> {
+  const [adminsRes, staffRes] = await Promise.all([
+    fetch("/api/v1/admin-users"),
+    fetch("/api/v1/staff"),
+  ]);
+
+  const admins = (await adminsRes.json()) as Array<{
+    id: string;
+    name: string;
+    mobile: string;
+    email: string | null;
+    isActive: boolean;
+  }>;
+  const staff = (await staffRes.json()) as Array<{
+    id: string;
+    name: string;
+    mobile: string;
+    email: string | null;
+    subRole: string | null;
+    isActive: boolean;
+  }>;
+
+  return [
+    ...admins.map((row) => ({
+      id: row.id,
+      name: row.name,
+      mobile: row.mobile,
+      email: row.email,
+      role: "ADMIN",
+      subRole: null,
+      isActive: row.isActive,
+    })),
+    ...staff.map((row) => ({
+      id: row.id,
+      name: row.name,
+      mobile: row.mobile,
+      email: row.email,
+      role: "EMPLOYEE",
+      subRole: row.subRole,
+      isActive: row.isActive,
+    })),
+  ];
+}
+
 export function UserManagement({ initialUsers }: UserManagementProps): JSX.Element {
+  const { pushToast } = useToast();
   const [users, setUsers] = useState<UserRow[]>(initialUsers);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
 
   async function refresh(): Promise<void> {
-    const response = await fetch("/api/v1/staff");
-    const staff = (await response.json()) as Array<{ id: string; name: string; mobile: string; email: string | null; subRole: string | null; isActive: boolean }>;
+    const rows = await fetchAllUsers();
+    setUsers(rows);
+  }
 
-    const admins = users.filter((user) => user.role === "ADMIN");
-    setUsers([
-      ...admins,
-      ...staff.map((row) => ({
-        id: row.id,
-        name: row.name,
-        mobile: row.mobile,
-        email: row.email,
-        role: "EMPLOYEE",
-        subRole: row.subRole,
-        isActive: row.isActive,
-      })),
-    ]);
+  async function changePassword(user: UserRow): Promise<void> {
+    const password = window.prompt(`Set new password for ${user.name}`);
+    if (!password) return;
+    const confirmPassword = window.prompt("Confirm new password");
+    if (!confirmPassword) return;
+
+    const res = await fetch(`/api/v1/users/${user.id}/password`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password, confirmPassword }),
+    });
+    const payload = (await res.json().catch(() => null)) as { error?: string } | null;
+    if (!res.ok) {
+      pushToast({
+        title: "Password update failed",
+        message: payload?.error ?? "Could not update password",
+        variant: "error",
+      });
+      return;
+    }
+
+    pushToast({
+      title: user.role === "ADMIN" ? "Admin password updated" : "Staff password updated",
+      variant: "success",
+    });
   }
 
   return (
@@ -81,28 +140,39 @@ export function UserManagement({ initialUsers }: UserManagementProps): JSX.Eleme
                     <Badge variant={user.isActive ? "success" : "danger"}>{user.isActive ? "ACTIVE" : "INACTIVE"}</Badge>
                   </td>
                   <td className="px-3 py-2">
-                    {user.role === "EMPLOYEE" ? (
+                    <div className="flex items-center gap-2">
                       <Button
                         size="sm"
-                        variant={user.isActive ? "danger" : "outline"}
-                        loading={isPending}
+                        variant="outline"
                         onClick={() => {
-                          startTransition(() => {
-                            void fetch(`/api/v1/staff/${user.id}`, {
-                              method: "PUT",
-                              headers: { "Content-Type": "application/json" },
-                              body: JSON.stringify({ isActive: !user.isActive }),
-                            }).then(() => {
-                              setUsers((prev) => prev.map((item) => (item.id === user.id ? { ...item, isActive: !item.isActive } : item)));
-                            });
-                          });
+                          void changePassword(user);
                         }}
                       >
-                        {user.isActive ? "Deactivate" : "Activate"}
+                        Change Password
                       </Button>
-                    ) : (
-                      <span className="text-xs text-[var(--color-text-muted)]">Protected</span>
-                    )}
+                      {user.role === "EMPLOYEE" ? (
+                        <Button
+                          size="sm"
+                          variant={user.isActive ? "danger" : "outline"}
+                          loading={isPending}
+                          onClick={() => {
+                            startTransition(() => {
+                              void fetch(`/api/v1/staff/${user.id}`, {
+                                method: "PUT",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ isActive: !user.isActive }),
+                              }).then(() => {
+                                setUsers((prev) => prev.map((item) => (item.id === user.id ? { ...item, isActive: !item.isActive } : item)));
+                              });
+                            });
+                          }}
+                        >
+                          {user.isActive ? "Deactivate" : "Activate"}
+                        </Button>
+                      ) : (
+                        <span className="text-xs text-[var(--color-text-muted)]">Protected</span>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}

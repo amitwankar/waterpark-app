@@ -27,7 +27,7 @@ interface StaffNavItem {
 const QR_SCAN_ROLES = ["RIDE_OPERATOR", "SECURITY_STAFF", "TICKET_COUNTER", "LOCKER_ATTENDANT", "COSTUME_ATTENDANT", "ADMIN"];
 
 const items: StaffNavItem[] = [
-  { href: "/staff/pos", label: "POS", subRoles: ["TICKET_COUNTER", "SALES_EXECUTIVE", "ADMIN"] },
+  { href: "/staff/pos", label: "POS", subRoles: ["TICKET_COUNTER", "SALES_EXECUTIVE", "EVENT_COORDINATOR", "ADMIN"] },
   { href: "/staff/scan", label: "QR Scan", subRoles: QR_SCAN_ROLES, icon: ScanLine },
   { href: "/staff/rides", label: "Rides", subRoles: ["RIDE_OPERATOR", "SECURITY_STAFF", "ADMIN"] },
   { href: "/staff/food", label: "Food", subRoles: ["FB_STAFF", "ADMIN"] },

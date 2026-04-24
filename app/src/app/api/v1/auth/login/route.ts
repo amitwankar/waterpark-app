@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { getPostLoginRoute } from "@/lib/post-login-route";
 import { verifyPassword } from "@/lib/password";
 import { REDIS_KEYS, REDIS_TTL, incrementWithWindow, redis } from "@/lib/redis";
 import {
@@ -51,6 +52,30 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   let response: Response;
+  const loginCandidate = await db.user.findFirst({
+    where: {
+      mobile,
+      role: { in: ["ADMIN", "EMPLOYEE"] },
+      isActive: true,
+      isDeleted: false,
+    },
+    select: {
+      id: true,
+      role: true,
+      subRole: true,
+      passwordHash: true,
+    },
+  });
+
+  if (!loginCandidate) {
+    return NextResponse.json(
+      {
+        message: "Invalid mobile or password",
+        remainingAttempts: MAX_ATTEMPTS,
+      },
+      { status: 401 },
+    );
+  }
 
   try {
     response = await auth.api.signInUsername({
@@ -68,22 +93,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   if (!response.ok) {
     // Backward compatibility: older staff creation flow stored user.passwordHash
     // but missed account(provider=credential), causing auth failure.
-    const legacyUser = await db.user.findFirst({
-      where: {
-        mobile,
-        isDeleted: false,
-        isActive: true,
-      },
-      select: {
-        id: true,
-        passwordHash: true,
-      },
-    });
-
-    if (legacyUser?.passwordHash && (await verifyPassword(password, legacyUser.passwordHash))) {
+    if (loginCandidate.passwordHash && (await verifyPassword(password, loginCandidate.passwordHash))) {
       const credentialAccount = await db.account.findFirst({
         where: {
-          userId: legacyUser.id,
+          userId: loginCandidate.id,
           providerId: "credential",
         },
         select: { id: true },
@@ -92,15 +105,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       if (credentialAccount) {
         await db.account.update({
           where: { id: credentialAccount.id },
-          data: { password: legacyUser.passwordHash },
+          data: { password: loginCandidate.passwordHash },
         });
       } else {
         await db.account.create({
           data: {
-            userId: legacyUser.id,
+            userId: loginCandidate.id,
             providerId: "credential",
-            accountId: legacyUser.id,
-            password: legacyUser.passwordHash,
+            accountId: loginCandidate.id,
+            password: loginCandidate.passwordHash,
           },
         });
       }
@@ -153,14 +166,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   await redis.del(REDIS_KEYS.loginFailCount(mobile));
   await redis.del(lockKey);
 
-  const payload = (await response.json().catch(() => null)) as
-    | { user?: { role?: string } }
-    | null;
+  const redirectTo = getPostLoginRoute(
+    loginCandidate.role,
+    loginCandidate.subRole,
+  );
 
-  const role = payload?.user?.role;
-  const redirectTo = role === "ADMIN" ? "/admin/dashboard" : "/staff/pos";
-
-  const nextResponse = NextResponse.json({ success: true, redirectTo });
+  const nextResponse = NextResponse.json({
+    success: true,
+    role: loginCandidate.role,
+    subRole: loginCandidate.subRole,
+    redirectTo,
+  });
   const setCookie = response.headers.get("set-cookie");
   if (setCookie) {
     nextResponse.headers.set("set-cookie", setCookie);

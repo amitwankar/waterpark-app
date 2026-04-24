@@ -64,6 +64,10 @@ export function AddStaffModal({ onClose, onSaved }: Props) {
       setError("Please fill in all required fields.");
       return;
     }
+    if (!form.email.trim()) {
+      setError("Please fill in all required fields.");
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -95,7 +99,7 @@ export function AddStaffModal({ onClose, onSaved }: Props) {
           <Input label="Mobile *" value={form.mobile} onChange={set("mobile")} placeholder="10-digit mobile" />
         </div>
         <div className="grid grid-cols-2 gap-4">
-          <Input label="Email" value={form.email} onChange={set("email")} placeholder="Optional" type="email" />
+          <Input label="Email *" value={form.email} onChange={set("email")} placeholder="name@example.com" type="email" />
           <Input label="Password *" value={form.password} onChange={set("password")} type="password" placeholder="Min 8 chars" />
         </div>
         <Select

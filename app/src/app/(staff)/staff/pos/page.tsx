@@ -12,7 +12,8 @@ export default async function PosHubPage() {
     "LOCKER_ATTENDANT",
     "COSTUME_ATTENDANT",
     "PARKING_ATTENDANT",
-    "SALES_EXECUTIVE"
+    "SALES_EXECUTIVE",
+    "EVENT_COORDINATOR"
   );
   if (error) redirect("/login");
 
@@ -25,7 +26,7 @@ export default async function PosHubPage() {
       description: "Walk-in ticket sales, balance collection, and guest check-in.",
       icon: "🎟",
       color: "teal",
-      allowed: ["TICKET_COUNTER", "SALES_EXECUTIVE"],
+      allowed: ["TICKET_COUNTER", "SALES_EXECUTIVE", "EVENT_COORDINATOR"],
     },
     {
       href: "/staff/pos/food",
