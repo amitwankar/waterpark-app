@@ -10,6 +10,7 @@ const createSchema = z.object({
   mobile: z.string().regex(MOBILE_REGEX, "Invalid Indian mobile number"),
   email: z.string().email(),
   password: z.string().min(8).max(64),
+  role: z.enum(["EMPLOYEE", "ADMIN"]).default("EMPLOYEE"),
   subRole: z.enum([
     "TICKET_COUNTER",
     "FB_STAFF",
@@ -21,10 +22,10 @@ const createSchema = z.object({
     "SALES_EXECUTIVE",
     "SECURITY_STAFF",
     "EVENT_COORDINATOR",
-  ]),
-  employeeCode: z.string().min(1).max(30),
+  ]).optional(),
+  employeeCode: z.string().min(1).max(30).optional(),
   department: z.string().optional(),
-  joiningDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD"),
+  joiningDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD").optional(),
 });
 
 export async function GET(req: NextRequest) {
@@ -89,9 +90,21 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { employeeCode, department, joiningDate, password, subRole, ...userFields } =
+  const { employeeCode, department, joiningDate, password, subRole, role, ...userFields } =
     parsed.data;
   const normalizedEmail = userFields.email.trim().toLowerCase();
+
+  if (role === "EMPLOYEE") {
+    if (!subRole) {
+      return NextResponse.json({ error: "Sub role is required for employee users" }, { status: 422 });
+    }
+    if (!employeeCode?.trim()) {
+      return NextResponse.json({ error: "Employee code is required for employee users" }, { status: 422 });
+    }
+    if (!joiningDate) {
+      return NextResponse.json({ error: "Joining date is required for employee users" }, { status: 422 });
+    }
+  }
 
   // Check for duplicate mobile
   const existing = await db.user.findFirst({
@@ -116,21 +129,23 @@ export async function POST(req: NextRequest) {
   }
 
   // Check for duplicate employee code
-  const codeExists = await db.staffProfile.findUnique({
-    where: { employeeCode },
-  });
-  if (codeExists) {
-    return NextResponse.json(
-      { error: "Employee code already in use" },
-      { status: 409 }
-    );
+  if (employeeCode?.trim()) {
+    const codeExists = await db.staffProfile.findUnique({
+      where: { employeeCode: employeeCode.trim() },
+    });
+    if (codeExists) {
+      return NextResponse.json(
+        { error: "Employee code already in use" },
+        { status: 409 }
+      );
+    }
   }
 
   // Hash password via bcrypt (Better Auth convention)
   const { hashPassword } = await import("@/lib/password");
   const passwordHash = await hashPassword(password);
 
-  if (department?.trim()) {
+  if (role === "EMPLOYEE" && department?.trim()) {
     const departmentExists = await db.departmentMaster.findFirst({
       where: {
         name: { equals: department.trim(), mode: "insensitive" },
@@ -150,17 +165,21 @@ export async function POST(req: NextRequest) {
       data: {
         ...userFields,
         email: normalizedEmail,
-        role: "EMPLOYEE",
-        subRole,
+        role,
+        subRole: role === "EMPLOYEE" ? subRole : null,
         passwordHash,
         emailVerified: false,
-        staffProfile: {
-          create: {
-            employeeCode,
-            department: department?.trim() || null,
-            joiningDate: new Date(joiningDate),
-          },
-        },
+        ...(role === "EMPLOYEE"
+          ? {
+              staffProfile: {
+                create: {
+                  employeeCode: employeeCode!.trim(),
+                  department: department?.trim() || null,
+                  joiningDate: new Date(joiningDate!),
+                },
+              },
+            }
+          : {}),
       },
       select: {
         id: true,

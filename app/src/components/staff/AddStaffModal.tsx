@@ -33,6 +33,7 @@ export function AddStaffModal({ onClose, onSaved }: Props) {
     mobile: "",
     email: "",
     password: "",
+    role: "EMPLOYEE",
     subRole: "TICKET_COUNTER",
     employeeCode: "",
     department: "",
@@ -60,12 +61,16 @@ export function AddStaffModal({ onClose, onSaved }: Props) {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!form.name.trim() || !form.mobile || !form.password || !form.employeeCode || !form.joiningDate) {
+    if (!form.name.trim() || !form.mobile || !form.password) {
       setError("Please fill in all required fields.");
       return;
     }
     if (!form.email.trim()) {
       setError("Please fill in all required fields.");
+      return;
+    }
+    if (form.role === "EMPLOYEE" && (!form.employeeCode || !form.joiningDate)) {
+      setError("Employee code and joining date are required for employee users.");
       return;
     }
     setSaving(true);
@@ -76,8 +81,12 @@ export function AddStaffModal({ onClose, onSaved }: Props) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...form,
+          role: form.role,
           email: form.email.trim() || undefined,
           department: form.department.trim() || undefined,
+          subRole: form.role === "EMPLOYEE" ? form.subRole : undefined,
+          employeeCode: form.role === "EMPLOYEE" ? form.employeeCode : undefined,
+          joiningDate: form.role === "EMPLOYEE" ? form.joiningDate : undefined,
         }),
       });
       if (!res.ok) {
@@ -99,27 +108,43 @@ export function AddStaffModal({ onClose, onSaved }: Props) {
           <Input label="Mobile *" value={form.mobile} onChange={set("mobile")} placeholder="10-digit mobile" />
         </div>
         <div className="grid grid-cols-2 gap-4">
+          <Select
+            label="Role *"
+            value={form.role}
+            onChange={set("role")}
+            options={[
+              { label: "Employee", value: "EMPLOYEE" },
+              { label: "Admin Staff", value: "ADMIN" },
+            ]}
+          />
+          <div />
+        </div>
+        <div className="grid grid-cols-2 gap-4">
           <Input label="Email *" value={form.email} onChange={set("email")} placeholder="name@example.com" type="email" />
           <Input label="Password *" value={form.password} onChange={set("password")} type="password" placeholder="Min 8 chars" />
         </div>
-        <Select
-          value={form.subRole}
-          onChange={set("subRole")}
-          options={SUB_ROLES}
-        />
-        <div className="grid grid-cols-2 gap-4">
-          <Input label="Employee Code *" value={form.employeeCode} onChange={set("employeeCode")} placeholder="WP-EMP-0001" />
-          <Select
-            label="Department"
-            value={form.department}
-            onChange={set("department")}
-            options={[
-              { label: "Select Department", value: "" },
-              ...departments.map((row) => ({ label: row.name, value: row.name })),
-            ]}
-          />
-        </div>
-        <Input label="Joining Date *" type="date" value={form.joiningDate} onChange={set("joiningDate")} />
+        {form.role === "EMPLOYEE" ? (
+          <>
+            <Select
+              value={form.subRole}
+              onChange={set("subRole")}
+              options={SUB_ROLES}
+            />
+            <div className="grid grid-cols-2 gap-4">
+              <Input label="Employee Code *" value={form.employeeCode} onChange={set("employeeCode")} placeholder="WP-EMP-0001" />
+              <Select
+                label="Department"
+                value={form.department}
+                onChange={set("department")}
+                options={[
+                  { label: "Select Department", value: "" },
+                  ...departments.map((row) => ({ label: row.name, value: row.name })),
+                ]}
+              />
+            </div>
+            <Input label="Joining Date *" type="date" value={form.joiningDate} onChange={set("joiningDate")} />
+          </>
+        ) : null}
 
         {error && <p className="text-sm text-red-500">{error}</p>}
 
