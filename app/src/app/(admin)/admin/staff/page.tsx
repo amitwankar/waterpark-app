@@ -5,6 +5,7 @@ import { UserPlus, Users } from "lucide-react";
 
 import { DataTable, type DataTableColumn } from "@/components/layout/DataTable";
 import { PageHeader } from "@/components/layout/PageHeader";
+import { useToast } from "@/components/feedback/Toast";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { Input } from "@/components/ui/Input";
@@ -40,6 +41,7 @@ const SUB_ROLE_LABELS: Record<string, string> = {
 };
 
 export default function AdminStaffPage(): JSX.Element {
+  const { pushToast } = useToast();
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -121,12 +123,18 @@ export default function AdminStaffPage(): JSX.Element {
               size="sm"
               variant="outline"
               onClick={async () => {
-                await fetch(`/api/v1/staff/${row.id}`, {
-                  method: "PUT",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ isActive: !row.isActive }),
-                });
-                await load();
+                try {
+                  const res = await fetch(`/api/v1/staff/${row.id}`, {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ isActive: !row.isActive }),
+                  });
+                  if (!res.ok) throw new Error("Status update failed");
+                  pushToast({ title: row.isActive ? "Staff deactivated" : "Staff activated", variant: "success" });
+                  await load();
+                } catch {
+                  pushToast({ title: "Status update failed", variant: "error" });
+                }
               }}
             >
               {row.isActive ? "Deactivate" : "Activate"}
@@ -136,10 +144,23 @@ export default function AdminStaffPage(): JSX.Element {
               variant="ghost"
               className="text-red-600 hover:text-red-700"
               onClick={async () => {
-                const ok = window.confirm(`Delete ${row.name}? This will deactivate and hide the staff account.`);
+                const ok = window.confirm(`Delete ${row.name} permanently? This removes the staff record from the database.`);
                 if (!ok) return;
-                await fetch(`/api/v1/staff/${row.id}`, { method: "DELETE" });
-                await load();
+                try {
+                  const res = await fetch(`/api/v1/staff/${row.id}`, { method: "DELETE" });
+                  if (!res.ok) {
+                    const payload = (await res.json().catch(() => null)) as { error?: string } | null;
+                    throw new Error(payload?.error ?? "Delete failed");
+                  }
+                  pushToast({ title: "Staff deleted permanently", variant: "success" });
+                  await load();
+                } catch (error) {
+                  pushToast({
+                    title: "Delete failed",
+                    message: error instanceof Error ? error.message : "Could not delete staff",
+                    variant: "error",
+                  });
+                }
               }}
             >
               Delete

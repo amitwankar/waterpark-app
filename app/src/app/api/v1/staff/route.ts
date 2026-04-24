@@ -39,6 +39,7 @@ export async function GET(req: NextRequest) {
   const staff = await db.user.findMany({
     where: {
       role: "EMPLOYEE",
+      isDeleted: false,
       ...(subRole ? { subRole: subRole as never } : {}),
       ...(isActive !== null ? { isActive: isActive === "true" } : {}),
       ...(q

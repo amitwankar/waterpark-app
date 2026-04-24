@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/session";
@@ -35,7 +36,7 @@ export async function GET(
   const { id } = await params;
 
   const staff = await db.user.findFirst({
-    where: { id, role: "EMPLOYEE" },
+    where: { id, role: "EMPLOYEE", isDeleted: false },
     select: {
       id: true,
       name: true,
@@ -97,6 +98,14 @@ export async function PUT(
     }
   }
 
+  const existing = await db.user.findFirst({
+    where: { id, role: "EMPLOYEE", isDeleted: false },
+    select: { id: true },
+  });
+  if (!existing) {
+    return NextResponse.json({ error: "Staff member not found" }, { status: 404 });
+  }
+
   const user = await db.user.update({
     where: { id },
     data: {
@@ -140,17 +149,20 @@ export async function DELETE(
     return NextResponse.json({ error: "Staff member not found" }, { status: 404 });
   }
 
-  await db.user.update({
-    where: { id },
-    data: {
-      isActive: false,
-      isDeleted: true,
-      deletedAt: new Date(),
-      staffProfile: {
-        update: { isActive: false },
-      },
-    },
-  });
+  try {
+    await db.user.delete({ where: { id } });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2003") {
+      return NextResponse.json(
+        {
+          error:
+            "Cannot permanently delete this staff account because historical records are linked to it. Keep it deactivated instead.",
+        },
+        { status: 409 }
+      );
+    }
+    throw error;
+  }
 
   return NextResponse.json({ success: true });
 }
