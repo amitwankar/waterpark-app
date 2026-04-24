@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { auth } from "@/lib/auth";
+import { db } from "@/lib/db";
+import { verifyPassword } from "@/lib/password";
 import { REDIS_KEYS, REDIS_TTL, incrementWithWindow, redis } from "@/lib/redis";
 import {
   mobileSchema,
@@ -61,6 +63,61 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     });
   } catch {
     response = new Response(null, { status: 401 });
+  }
+
+  if (!response.ok) {
+    // Backward compatibility: older staff creation flow stored user.passwordHash
+    // but missed account(provider=credential), causing auth failure.
+    const legacyUser = await db.user.findFirst({
+      where: {
+        mobile,
+        isDeleted: false,
+        isActive: true,
+      },
+      select: {
+        id: true,
+        passwordHash: true,
+      },
+    });
+
+    if (legacyUser?.passwordHash && (await verifyPassword(password, legacyUser.passwordHash))) {
+      const credentialAccount = await db.account.findFirst({
+        where: {
+          userId: legacyUser.id,
+          providerId: "credential",
+        },
+        select: { id: true },
+      });
+
+      if (credentialAccount) {
+        await db.account.update({
+          where: { id: credentialAccount.id },
+          data: { password: legacyUser.passwordHash },
+        });
+      } else {
+        await db.account.create({
+          data: {
+            userId: legacyUser.id,
+            providerId: "credential",
+            accountId: legacyUser.id,
+            password: legacyUser.passwordHash,
+          },
+        });
+      }
+
+      try {
+        response = await auth.api.signInUsername({
+          body: {
+            username: mobile,
+            password,
+          },
+          headers: request.headers,
+          asResponse: true,
+        });
+      } catch {
+        response = new Response(null, { status: 401 });
+      }
+    }
   }
 
   if (!response.ok) {

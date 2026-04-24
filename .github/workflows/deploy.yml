@@ -60,6 +60,7 @@ jobs:
             if [ -z "$APP_ROOT" ]; then
               APP_ROOT="/var/www/waterpark-app"
             fi
+            PM2_APP_NAME="waterpark-app"
 
             log_step() {
               echo ""
@@ -91,12 +92,19 @@ jobs:
 
             log_step "Restarting process manager"
             if command -v pm2 >/dev/null 2>&1; then
-              if pm2 describe waterpark >/dev/null 2>&1; then
+              if pm2 describe "$PM2_APP_NAME" >/dev/null 2>&1; then
+                pm2 restart "$PM2_APP_NAME"
+              elif pm2 describe waterpark >/dev/null 2>&1; then
+                # Legacy process name kept for backward compatibility.
                 pm2 restart waterpark
+                pm2 rename waterpark "$PM2_APP_NAME"
               else
-                pm2 start npm --name waterpark -- start
+                # Ensure older plain next processes are stopped before binding the port.
+                pkill -f "next start" || true
+                pm2 start npm --name "$PM2_APP_NAME" -- start
               fi
-              pm2 save
+              pm2 status
+              pm2 save || echo "[deploy][warn] pm2 save failed"
             else
               echo "[deploy] pm2 not found; starting app with nohup fallback"
               pkill -f "next start" || true

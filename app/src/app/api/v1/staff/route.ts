@@ -133,30 +133,43 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const user = await db.user.create({
-    data: {
-      ...userFields,
-      role: "EMPLOYEE",
-      subRole,
-      passwordHash,
-      emailVerified: false,
-      staffProfile: {
-        create: {
-          employeeCode,
-          department: department?.trim() || null,
-          joiningDate: new Date(joiningDate),
+  const user = await db.$transaction(async (tx) => {
+    const created = await tx.user.create({
+      data: {
+        ...userFields,
+        role: "EMPLOYEE",
+        subRole,
+        passwordHash,
+        emailVerified: false,
+        staffProfile: {
+          create: {
+            employeeCode,
+            department: department?.trim() || null,
+            joiningDate: new Date(joiningDate),
+          },
         },
       },
-    },
-    select: {
-      id: true,
-      name: true,
-      mobile: true,
-      email: true,
-      subRole: true,
-      isActive: true,
-      staffProfile: true,
-    },
+      select: {
+        id: true,
+        name: true,
+        mobile: true,
+        email: true,
+        subRole: true,
+        isActive: true,
+        staffProfile: true,
+      },
+    });
+
+    await tx.account.create({
+      data: {
+        userId: created.id,
+        providerId: "credential",
+        accountId: created.id,
+        password: passwordHash,
+      },
+    });
+
+    return created;
   });
 
   return NextResponse.json(user, { status: 201 });
