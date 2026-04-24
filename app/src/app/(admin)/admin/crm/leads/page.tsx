@@ -139,8 +139,6 @@ export default async function CrmLeadsPage({ searchParams }: LeadsPageProps): Pr
         <AddLeadModal assignees={assignees} />
       </div>
 
-      <FollowUpDueCard count={analytics.dueCount} overdueMoreThanOneDay={analytics.overdue} />
-
       <Card>
         <CardBody className="space-y-3">
           <form action="/admin/crm/leads" method="get" className="grid gap-3 lg:grid-cols-5">
@@ -206,6 +204,7 @@ export default async function CrmLeadsPage({ searchParams }: LeadsPageProps): Pr
         <LeadTable rows={leadRows as any} assignees={assignees} />
       )}
 
+      <FollowUpDueCard count={analytics.dueCount} overdueMoreThanOneDay={analytics.overdue} />
       <ConversionMetrics conversionRate={analytics.conversionRate} lossRate={analytics.lossRate} stageBreakdown={analytics.stageBreakdown} />
     </div>
   );

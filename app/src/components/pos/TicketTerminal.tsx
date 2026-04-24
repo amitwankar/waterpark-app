@@ -295,9 +295,7 @@ export function TicketTerminal({
         .then(async (response) => {
           if (!response.ok) return [] as LockerOption[];
           const payload = (await response.json()) as Array<{ id: string; name: string; code: string; baseRate?: number; gstRate?: number; size?: string }>;
-          return payload
-            .filter((category) => true)
-            .map((category) => ({
+          return payload.map((category) => ({
             id: category.id,
             number: `${category.name} (${category.code})`,
             rate: Number(category.baseRate ?? 299),

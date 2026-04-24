@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "test:smoke:crud": "tsx scripts/smoke-crud.ts",
+    "test:auto": "tsx scripts/run-auto-tests.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

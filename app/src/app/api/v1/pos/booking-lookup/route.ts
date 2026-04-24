@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import type { Prisma } from "@prisma/client";
 
 import { splitBookingNotes } from "@/lib/booking-meta";
 import { db } from "@/lib/db";
@@ -39,26 +40,27 @@ export async function GET(req: NextRequest) {
   }).format(new Date());
   const todayDate = new Date(`${todayIst}T00:00:00.000Z`);
 
-  const baseWhere = {
-    ...(purpose === "service"
-      ? { status: "CHECKED_IN" as const, checkedInAt: { not: null } }
+  const baseWhere: Prisma.BookingWhereInput =
+    purpose === "service"
+      ? {
+          status: "CHECKED_IN",
+          checkedInAt: { not: null },
+        }
       : {
-          status: { in: ["PENDING", "CONFIRMED"] as const },
+          status: { in: ["PENDING", "CONFIRMED"] },
           visitDate: { gte: todayDate },
           checkedInAt: null,
           transactions: { none: { posSessionId: { not: null } } },
-        }),
-    ...(q
-      ? {
-          OR: [
-            { id: q },
-            { bookingNumber: { contains: q, mode: "insensitive" as const } },
-            { guestMobile: { contains: q } },
-            { guestName: { contains: q, mode: "insensitive" as const } },
-          ],
-        }
-      : {}),
-  };
+        };
+
+  if (q) {
+    baseWhere.OR = [
+      { id: q },
+      { bookingNumber: { contains: q, mode: "insensitive" } },
+      { guestMobile: { contains: q } },
+      { guestName: { contains: q, mode: "insensitive" } },
+    ];
+  }
 
   if (countOnly) {
     const count = await db.booking.count({ where: baseWhere });

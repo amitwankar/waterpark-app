@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import { ReceiptModal } from "./ReceiptModal";
 import { SessionCloser } from "./SessionCloser";
 
@@ -13,18 +13,6 @@ interface LockerRow {
   gstRate?: number;
   zone: { id: string; name: string };
   categoryId?: string | null;
-}
-
-interface ActiveAssignment {
-  id: string;
-  lockerId: string;
-  lockerNumber: string;
-  guestName: string;
-  guestMobile: string;
-  assignedAt: string;
-  dueAt: string;
-  amount: number;
-  notes?: string | null;
 }
 
 interface ServiceBooking {
@@ -58,6 +46,25 @@ interface LockerTerminalProps {
 }
 
 type Tab = "assign" | "release";
+
+function normalizeBookingLookupQuery(raw: string): string {
+  const value = raw.trim();
+  if (!value) return "";
+  if (value.includes("/booking/confirmation/")) {
+    const match = value.match(/\/booking\/confirmation\/([^/?#]+)/i);
+    return match?.[1]?.trim() ?? value;
+  }
+  if (value.includes("?")) {
+    try {
+      const url = new URL(value, "https://local.waterpark");
+      const fromParam = url.searchParams.get("bookingNumber") ?? url.searchParams.get("booking") ?? "";
+      if (fromParam.trim()) return fromParam.trim();
+    } catch {
+      // ignore invalid URL-like strings and fallback to raw value
+    }
+  }
+  return value;
+}
 
 export function LockerTerminal({
   sessionId,
@@ -109,7 +116,7 @@ export function LockerTerminal({
   }, [selectedLocker, durationType, durationHours]);
 
   async function lookupBooking() {
-    const query = bookingQuery.trim();
+    const query = normalizeBookingLookupQuery(bookingQuery);
     if (query.length < 3) {
       setBookingLookupError("Enter at least 3 characters.");
       return;
@@ -132,6 +139,12 @@ export function LockerTerminal({
     const firstPendingCategory = first.services?.locker?.byCategory?.find((row) => row.pending > 0)?.lockerCategoryId ?? "";
     setSelectedLockerCategoryId(firstPendingCategory);
     setBookingLookupError(null);
+  }
+
+  function handleBookingQueryKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    void lookupBooking();
   }
 
   async function loadLockers() {
@@ -293,12 +306,13 @@ export function LockerTerminal({
             <h3 className="text-sm font-semibold text-gray-700">Assign Locker</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div className="md:col-span-2 rounded border border-gray-200 p-3 space-y-2">
-                <label className="block text-xs text-gray-500">Checked-in Booking (optional)</label>
+                <label className="block text-xs text-gray-500">Checked-in Booking / Ticket Scan (optional)</label>
                 <div className="flex gap-2">
                   <input
                     value={bookingQuery}
                     onChange={(event) => setBookingQuery(event.target.value)}
-                    placeholder="Booking number / mobile"
+                    onKeyDown={handleBookingQueryKeyDown}
+                    placeholder="Scan ticket / booking number / mobile"
                     className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm"
                   />
                   <button
@@ -306,7 +320,7 @@ export function LockerTerminal({
                     onClick={() => void lookupBooking()}
                     className="px-3 py-2 text-xs rounded bg-gray-900 text-white"
                   >
-                    Load
+                    Scan & Load
                   </button>
                 </div>
                 {bookingLookupError ? <p className="text-xs text-red-600">{bookingLookupError}</p> : null}
