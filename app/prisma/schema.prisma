@@ -434,6 +434,7 @@ model ParkConfig {
   email      String?
   logoUrl    String? @map("logo_url")
   websiteUrl String? @map("website_url")
+  websiteEnabled Boolean @default(true) @map("website_enabled")
   timezone   String  @default("Asia/Kolkata") @map("timezone")
 
   // ── Pricing & Tax ────────────────────────────────────────────────────────

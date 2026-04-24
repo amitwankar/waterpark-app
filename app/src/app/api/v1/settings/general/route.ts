@@ -19,6 +19,7 @@ const schema = z.object({
   phone: z.string().trim().max(20).optional().nullable(),
   email: z.string().trim().email().max(255).optional().nullable(),
   websiteUrl: z.string().trim().url().max(255).optional().nullable(),
+  websiteEnabled: z.boolean().optional(),
   timezone: z.string().trim().min(3).max(64).optional(),
   logoUrl: z.string().trim().url().max(500).optional().nullable(),
 });
@@ -48,6 +49,7 @@ export async function PUT(request: NextRequest) {
       address: before.address,
       phone: before.phone,
       email: before.email,
+      websiteEnabled: before.websiteEnabled,
       timezone: before.timezone,
     },
     newValue: parsed.data,

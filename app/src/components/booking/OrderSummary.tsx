@@ -9,6 +9,14 @@ export interface OrderSummaryProps {
   discountAmount: number;
   totalAmount: number;
   gstRate: number;
+  items?: OrderSummaryItem[];
+}
+
+export interface OrderSummaryItem {
+  label: string;
+  quantity: number;
+  unitPrice: number;
+  lineTotal: number;
 }
 
 export function OrderSummary({
@@ -17,6 +25,7 @@ export function OrderSummary({
   discountAmount,
   totalAmount,
   gstRate,
+  items = [],
 }: OrderSummaryProps): JSX.Element {
   return (
     <Card>
@@ -24,6 +33,22 @@ export function OrderSummary({
         <h3 className="text-base font-semibold text-[var(--color-text)]">Order Summary</h3>
       </CardHeader>
       <CardBody className="space-y-3">
+        {items.length > 0 ? (
+          <>
+            <div className="space-y-2">
+              {items.map((item, index) => (
+                <div key={`${item.label}-${index}`} className="space-y-1 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-2">
+                  <p className="text-sm font-medium text-[var(--color-text)]">{item.label}</p>
+                  <div className="flex items-center justify-between text-xs text-[var(--color-text-muted)]">
+                    <span>{item.quantity} x {formatCurrency(item.unitPrice)}</span>
+                    <span className="font-semibold text-[var(--color-text)]">{formatCurrency(item.lineTotal)}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="h-px bg-[var(--color-border)]" />
+          </>
+        ) : null}
         <SummaryRow label="Subtotal" value={formatCurrency(subtotal)} />
         <SummaryRow label={`GST (${gstRate}%)`} value={formatCurrency(gstAmount)} />
         <SummaryRow label="Discount" value={`- ${formatCurrency(discountAmount)}`} />
@@ -48,4 +73,3 @@ function SummaryRow({ label, value, highlight }: SummaryRowProps): JSX.Element {
     </div>
   );
 }
-

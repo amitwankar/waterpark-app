@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { requireSubRole } from "@/lib/session";
 import { redirect } from "next/navigation";
+import { db } from "@/lib/db";
 
 /**
  * /staff/pos — POS Hub. Lets staff choose which terminal to open.
@@ -16,6 +17,29 @@ export default async function PosHubPage() {
     "EVENT_COORDINATOR"
   );
   if (error) redirect("/login");
+
+  // If staff already has an open POS session, force them back to that terminal
+  // so they cannot "exit" POS flow before closing session.
+  const activeSession = await db.posSession.findFirst({
+    where: {
+      staffId: user.id,
+      status: "OPEN",
+    },
+    orderBy: { openedAt: "desc" },
+    select: { terminalId: true },
+  });
+
+  if (activeSession?.terminalId) {
+    const terminal = activeSession.terminalId.toUpperCase();
+    let terminalPath = "/staff/pos/ticket";
+
+    if (terminal.includes("FOOD")) terminalPath = "/staff/pos/food";
+    else if (terminal.includes("LOCKER")) terminalPath = "/staff/pos/locker";
+    else if (terminal.includes("COSTUME")) terminalPath = "/staff/pos/costume";
+    else if (terminal.includes("PARKING")) terminalPath = "/staff/pos/parking";
+
+    redirect(`${terminalPath}?terminalId=${encodeURIComponent(activeSession.terminalId)}`);
+  }
 
   const subRole = (user as { subRole?: string }).subRole;
 

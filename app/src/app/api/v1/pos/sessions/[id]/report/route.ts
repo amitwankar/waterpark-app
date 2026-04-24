@@ -54,6 +54,13 @@ export async function GET(
     methodTotals[row.paymentMethod] = (methodTotals[row.paymentMethod] ?? 0) + Number(row.totalAmount);
   }
 
+  const cashCollected = Number(methodTotals.CASH ?? 0);
+  const openingCash = Number(session.openingCash);
+  const expectedCash =
+    session.expectedCash !== null && session.expectedCash !== undefined
+      ? Number(session.expectedCash)
+      : Math.round((openingCash + cashCollected) * 100) / 100;
+
   return NextResponse.json({
     session: {
       id: session.id,
@@ -62,15 +69,16 @@ export async function GET(
       openedAt: session.openedAt,
       closedAt: session.closedAt,
       status: session.status,
-      openingCash: Number(session.openingCash),
+      openingCash,
       closingCash: session.closingCash ? Number(session.closingCash) : null,
-      expectedCash: session.expectedCash ? Number(session.expectedCash) : null,
+      expectedCash,
       variance: session.variance ? Number(session.variance) : null,
     },
     summary: {
       transactionCount: session.transactions.length,
       totalCollected: Math.round((totalCollected + parkingCollected) * 100) / 100,
       parkingCount: session.parkingTickets.length,
+      cashCollected: Math.round(cashCollected * 100) / 100,
       byMethod: Object.entries(methodTotals).map(([method, amount]) => ({
         method,
         amount: Math.round(amount * 100) / 100,

@@ -48,7 +48,9 @@ export default function WhatsAppLoginPage(): JSX.Element {
               return;
             }
 
-            window.location.href = "/";
+            const json = (await response.json().catch(() => null)) as { redirectTo?: string } | null;
+            const nextPath = json?.redirectTo ?? "/login";
+            window.location.href = nextPath.startsWith("/") ? nextPath : "/login";
           } finally {
             setLoading(false);
           }

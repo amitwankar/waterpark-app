@@ -492,12 +492,33 @@ export function CostumeTerminal({
             <p className="text-xs text-white/80 mt-0.5">{terminalId} · {cashierName}</p>
           </div>
         </div>
-        <button
-          onClick={() => setShowCloser(true)}
-          className="text-xs bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded-lg transition-colors"
-        >
-          Close Session
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              window.alert("POS session is active. Close session first to exit.");
+            }}
+            className="text-xs bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded-lg transition-colors"
+          >
+            POS Dashboard
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              window.alert("POS session is active. Close session first to exit.");
+            }}
+            className="text-xs bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded-lg transition-colors"
+          >
+            Exit POS
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowCloser(true)}
+            className="text-xs bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded-lg transition-colors"
+          >
+            Close Session
+          </button>
+        </div>
       </header>
 
       {/* Tabs */}

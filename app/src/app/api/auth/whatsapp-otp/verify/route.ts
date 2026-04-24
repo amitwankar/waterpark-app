@@ -4,6 +4,8 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { hashPassword } from "@/lib/password";
+import { getPostLoginRoute } from "@/lib/post-login-route";
+import { getCachedSettings } from "@/lib/settings";
 import { verifyWhatsAppOtp } from "@/lib/whatsapp-otp";
 
 const mobileRegex = /^[6-9]\d{9}$/;
@@ -103,5 +105,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     headers: request.headers,
   });
 
-  return NextResponse.json({ success: true, data: signInResponse, returnUrl: parsed.data.returnUrl });
+  const settings = await getCachedSettings();
+  const defaultRedirect = getPostLoginRoute(user.role, user.subRole);
+  const redirectTo =
+    settings.websiteEnabled === false && defaultRedirect === "/" ? "/login" : defaultRedirect;
+
+  return NextResponse.json({
+    success: true,
+    data: signInResponse,
+    returnUrl: parsed.data.returnUrl,
+    redirectTo,
+  });
 }

@@ -15,6 +15,14 @@ type FoodOption = { id: string; foodItemId: string; foodVariantId?: string; name
 type LockerProduct = { lockerId: string; label: string; rate: number; gstRate: number };
 type CostumeGroup = { costumeItemId: string; label: string; rentalRate: number; gstRate: number; availableQuantity: number };
 type RideOption = { id: string; name: string; zoneName?: string | null; entryFee: number; gstRate: number };
+type QueueCartLineItem = {
+  key: string;
+  section: string;
+  label: string;
+  quantity: number;
+  unitPrice: number;
+  lineTotal: number;
+};
 
 type QueueOptionsResponse = {
   queue: { limitPerDay: number; prefix: string; todayCount: number };
@@ -75,7 +83,7 @@ export default function PublicQueuePage(): JSX.Element {
   }, []);
 
   const totals = useMemo(() => {
-    if (!options) return { subtotal: 0, gst: 0, total: 0 };
+    if (!options) return { subtotal: 0, gst: 0, total: 0, cartItems: [] as QueueCartLineItem[] };
 
     const ticketMap = new Map(options.tickets.map((t) => [t.id, t]));
     const packageMap = new Map(options.packages.map((p) => [p.id, p]));
@@ -86,6 +94,7 @@ export default function PublicQueuePage(): JSX.Element {
 
     let subtotal = 0;
     let gst = 0;
+    const cartItems: QueueCartLineItem[] = [];
 
     for (const line of ticketLines) {
       const t = ticketMap.get(line.ticketTypeId);
@@ -93,6 +102,14 @@ export default function PublicQueuePage(): JSX.Element {
       const qty = Math.max(1, Number(line.quantity || "1"));
       subtotal += t.price * qty;
       gst += t.price * qty * (t.gstRate / 100);
+      cartItems.push({
+        key: `ticket-${line.ticketTypeId}-${cartItems.length}`,
+        section: "Tickets",
+        label: t.name,
+        quantity: qty,
+        unitPrice: t.price,
+        lineTotal: roundMoney(t.price * qty),
+      });
     }
     for (const line of packageLines) {
       const p = packageMap.get(line.packageId);
@@ -100,6 +117,14 @@ export default function PublicQueuePage(): JSX.Element {
       const qty = Math.max(1, Number(line.quantity || "1"));
       subtotal += p.salePrice * qty;
       gst += p.salePrice * qty * (p.gstRate / 100);
+      cartItems.push({
+        key: `package-${line.packageId}-${cartItems.length}`,
+        section: "Packages",
+        label: p.name,
+        quantity: qty,
+        unitPrice: p.salePrice,
+        lineTotal: roundMoney(p.salePrice * qty),
+      });
     }
     for (const line of foodLines) {
       const f = foodMap.get(line.optionId);
@@ -107,6 +132,14 @@ export default function PublicQueuePage(): JSX.Element {
       const qty = Math.max(1, Number(line.quantity || "1"));
       subtotal += f.price * qty;
       gst += f.price * qty * (f.gstRate / 100);
+      cartItems.push({
+        key: `food-${line.optionId}-${cartItems.length}`,
+        section: "Food",
+        label: `${f.name}${f.variantName ? ` (${f.variantName})` : ""}`,
+        quantity: qty,
+        unitPrice: f.price,
+        lineTotal: roundMoney(f.price * qty),
+      });
     }
     for (const line of lockerLines) {
       const l = lockerMap.get(line.lockerId);
@@ -114,6 +147,14 @@ export default function PublicQueuePage(): JSX.Element {
       const qty = Math.max(1, Number(line.quantity || "1"));
       subtotal += l.rate * qty;
       gst += l.rate * qty * (l.gstRate / 100);
+      cartItems.push({
+        key: `locker-${line.lockerId}-${cartItems.length}`,
+        section: "Lockers",
+        label: l.label,
+        quantity: qty,
+        unitPrice: l.rate,
+        lineTotal: roundMoney(l.rate * qty),
+      });
     }
     for (const line of costumeLines) {
       const c = costumeMap.get(line.costumeItemId);
@@ -121,6 +162,14 @@ export default function PublicQueuePage(): JSX.Element {
       const qty = Math.max(1, Number(line.quantity || "1"));
       subtotal += c.rentalRate * qty;
       gst += c.rentalRate * qty * (c.gstRate / 100);
+      cartItems.push({
+        key: `costume-${line.costumeItemId}-${cartItems.length}`,
+        section: "Costumes",
+        label: c.label,
+        quantity: qty,
+        unitPrice: c.rentalRate,
+        lineTotal: roundMoney(c.rentalRate * qty),
+      });
     }
     for (const line of rideLines) {
       const r = rideMap.get(line.rideId);
@@ -128,11 +177,19 @@ export default function PublicQueuePage(): JSX.Element {
       const qty = Math.max(1, Number(line.quantity || "1"));
       subtotal += r.entryFee * qty;
       gst += r.entryFee * qty * (r.gstRate / 100);
+      cartItems.push({
+        key: `ride-${line.rideId}-${cartItems.length}`,
+        section: "Rides",
+        label: r.zoneName ? `${r.name} (${r.zoneName})` : r.name,
+        quantity: qty,
+        unitPrice: r.entryFee,
+        lineTotal: roundMoney(r.entryFee * qty),
+      });
     }
 
     subtotal = roundMoney(subtotal);
     gst = roundMoney(gst);
-    return { subtotal, gst, total: roundMoney(subtotal + gst) };
+    return { subtotal, gst, total: roundMoney(subtotal + gst), cartItems };
   }, [options, ticketLines, packageLines, foodLines, lockerLines, costumeLines, rideLines]);
 
   async function submit(): Promise<void> {
@@ -503,9 +560,34 @@ export default function PublicQueuePage(): JSX.Element {
         <div className="space-y-4 lg:sticky lg:top-24 self-start">
           <Card>
             <CardHeader>
-              <h2 className="text-lg font-semibold text-[var(--color-text)]">Total</h2>
+              <h2 className="text-lg font-semibold text-[var(--color-text)]">Cart Summary</h2>
             </CardHeader>
             <CardBody className="space-y-2 text-sm">
+              {totals.cartItems.length > 0 ? (
+                <div className="space-y-2">
+                  {totals.cartItems.map((item, index) => {
+                    const previous = totals.cartItems[index - 1];
+                    const showSectionLabel = !previous || previous.section !== item.section;
+                    return (
+                      <div key={item.key} className="space-y-1 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-2">
+                        {showSectionLabel ? (
+                          <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">{item.section}</p>
+                        ) : null}
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-[var(--color-text)]">{item.label}</p>
+                          <p className="text-right text-xs text-[var(--color-text-muted)]">
+                            {item.quantity} x {formatCurrency(item.unitPrice)} ={" "}
+                            <span className="font-semibold text-[var(--color-text)]">{formatCurrency(item.lineTotal)}</span>
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-xs text-[var(--color-text-muted)]">No items selected yet.</p>
+              )}
+              <div className="h-px bg-[var(--color-border)]" />
               <div className="flex items-center justify-between">
                 <span className="text-[var(--color-text-muted)]">Subtotal</span>
                 <span className="font-semibold text-[var(--color-text)]">{formatCurrency(totals.subtotal)}</span>
@@ -534,4 +616,3 @@ export default function PublicQueuePage(): JSX.Element {
     </div>
   );
 }
-

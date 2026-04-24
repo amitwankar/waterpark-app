@@ -12,6 +12,7 @@ interface SessionReport {
   summary: {
     totalSales: number;
     totalTransactions: number;
+    cashCollected: number;
     byMethod: Record<string, number>;
   };
 }
@@ -30,6 +31,7 @@ interface SessionReportApiPayload {
     totalCollected?: number;
     totalTransactions?: number;
     transactionCount?: number;
+    cashCollected?: number;
     byMethod?: Record<string, number> | Array<{ method: string; amount: number }>;
   };
 }
@@ -45,16 +47,27 @@ function normalizeReport(payload: SessionReportApiPayload, fallbackSessionId: st
         Object.entries(byMethodRaw ?? {}).map(([method, amount]) => [method, Number(amount ?? 0)]),
       );
 
+  const cashCollected = Number(
+    payload.summary?.cashCollected ?? byMethod.CASH ?? 0,
+  );
+  const openingCash = Number(payload.session?.openingCash ?? 0);
+  const expectedCashRaw = payload.session?.expectedCash;
+  const expectedCash =
+    typeof expectedCashRaw === "number"
+      ? Number(expectedCashRaw)
+      : Math.round((openingCash + cashCollected) * 100) / 100;
+
   return {
     sessionId: String(payload.session?.id ?? fallbackSessionId),
     terminalId: String(payload.session?.terminalId ?? "POS"),
     openedAt: String(payload.session?.openedAt ?? new Date().toISOString()),
     staffName: String(payload.session?.staffName ?? "Staff"),
-    openingCash: Number(payload.session?.openingCash ?? 0),
-    expectedCash: Number(payload.session?.expectedCash ?? 0),
+    openingCash,
+    expectedCash,
     summary: {
       totalSales: Number(payload.summary?.totalSales ?? payload.summary?.totalCollected ?? 0),
       totalTransactions: Number(payload.summary?.totalTransactions ?? payload.summary?.transactionCount ?? 0),
+      cashCollected,
       byMethod,
     },
   };
@@ -80,7 +93,9 @@ export function SessionCloser({ sessionId, onClosed, onCancel }: SessionCloserPr
         const res = await fetch(`/api/v1/pos/sessions/${sessionId}/report`);
         if (res.ok) {
           const payload = (await res.json()) as SessionReportApiPayload;
-          setReport(normalizeReport(payload, sessionId));
+          const normalized = normalizeReport(payload, sessionId);
+          setReport(normalized);
+          setClosingCash(normalized.expectedCash.toFixed(2));
         }
       } catch {
         // non-fatal
@@ -182,8 +197,17 @@ export function SessionCloser({ sessionId, onClosed, onCancel }: SessionCloserPr
                   <span className="font-medium text-blue-800">₹{report.openingCash.toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between mt-1">
+                  <span className="text-blue-700">Cash Collected</span>
+                  <span className="font-medium text-blue-800">₹{report.summary.cashCollected.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between mt-1">
                   <span className="text-blue-700">Expected Cash</span>
                   <span className="font-medium text-blue-800">₹{report.expectedCash.toFixed(2)}</span>
+                </div>
+                <div className="mt-2 border-t border-blue-200 pt-2 text-xs text-blue-700">
+                  Auto formula: Opening Cash + Cash Collected = Closing Cash
+                  <br />
+                  ₹{report.openingCash.toFixed(2)} + ₹{report.summary.cashCollected.toFixed(2)} = ₹{report.expectedCash.toFixed(2)}
                 </div>
               </div>
             </>

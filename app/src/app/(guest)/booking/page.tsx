@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { CouponInput } from "@/components/booking/CouponInput";
-import { OrderSummary } from "@/components/booking/OrderSummary";
+import { OrderSummary, type OrderSummaryItem } from "@/components/booking/OrderSummary";
 import { ParticipantRow, type ParticipantDraft } from "@/components/booking/ParticipantRow";
 import { Step1GuestDetails, type IdProofType } from "@/components/booking/Step1GuestDetails";
 import { Step2TicketSelection } from "@/components/booking/Step2TicketSelection";
@@ -276,6 +276,21 @@ export default function BookingPage(): JSX.Element {
     const gstRate = tickets.length > 0 ? (ticketMap.get(values.ticketLines[0]?.ticketTypeId ?? "")?.gstRate ?? 18) : 18;
     return calculatePricing({ lines, gstRate, discountAmount: couponDiscount });
   }, [values.ticketLines, ticketMap, tickets, couponDiscount]);
+
+  const bookingCartItems = useMemo<OrderSummaryItem[]>(() => {
+    return values.ticketLines
+      .map((line) => {
+        const ticket = ticketMap.get(line.ticketTypeId);
+        if (!ticket) return null;
+        return {
+          label: ticket.name,
+          quantity: line.quantity,
+          unitPrice: ticket.price,
+          lineTotal: ticket.price * line.quantity,
+        };
+      })
+      .filter((item): item is OrderSummaryItem => item !== null);
+  }, [values.ticketLines, ticketMap]);
 
   const paymentBreakdown = useMemo(() => {
     if (values.paymentPlan === "ADVANCE") {
@@ -624,14 +639,20 @@ export default function BookingPage(): JSX.Element {
                     <p>Mobile: {values.guestMobile}</p>
                     <p>Visit Date: {parseDateOnlyToUtc(values.visitDate)?.toLocaleDateString("en-IN")}</p>
                     <p>Total Guests: {totalGuests}</p>
-                    {values.ticketLines.map((l) => {
-                      const t = ticketMap.get(l.ticketTypeId);
-                      return t ? (
-                        <p key={l.ticketTypeId}>
-                          {t.name}: {l.quantity} × ₹{t.price}
-                        </p>
-                      ) : null;
-                    })}
+                    {bookingCartItems.length > 0 ? (
+                      <div className="space-y-2 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-bg)] p-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-[var(--color-text-muted)]">Cart Bifurcation</p>
+                        {bookingCartItems.map((item, index) => (
+                          <div key={`${item.label}-${index}`} className="flex items-center justify-between gap-3 text-sm">
+                            <span className="text-[var(--color-text)]">{item.label}</span>
+                            <span className="text-right text-[var(--color-text-muted)]">
+                              {item.quantity} x {formatCurrency(item.unitPrice)} ={" "}
+                              <span className="font-semibold text-[var(--color-text)]">{formatCurrency(item.lineTotal)}</span>
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
                     <p>ID Proof: {values.idProofType ? `${values.idProofType} ••••` : "Not provided"}</p>
                     <p>Payment Plan: {values.paymentPlan === "ADVANCE" ? `Advance ${values.advancePercent}%` : "Full Payment"}</p>
                     <p>Payment Method: {values.paymentMethod}</p>
@@ -660,6 +681,7 @@ export default function BookingPage(): JSX.Element {
                 </div>
               </div>
               <OrderSummary
+                items={bookingCartItems}
                 subtotal={pricing.subtotal}
                 gstAmount={pricing.gstAmount}
                 discountAmount={pricing.discountAmount}

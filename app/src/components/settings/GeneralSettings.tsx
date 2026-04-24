@@ -12,6 +12,7 @@ export interface GeneralSettingsValue {
   phone: string;
   email: string;
   websiteUrl: string;
+  websiteEnabled: boolean;
   address: string;
   city: string;
   state: string;
@@ -55,6 +56,22 @@ export function GeneralSettings({ initialValue, onSaved, onDirtyChange }: Genera
           <Input label="Timezone" value={form.timezone} onChange={(event) => update("timezone", event.target.value)} />
         </div>
 
+        <label className="flex items-start gap-3 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-3 py-2 text-sm">
+          <input
+            id="website-enabled"
+            type="checkbox"
+            checked={form.websiteEnabled}
+            onChange={(event) => update("websiteEnabled", event.target.checked)}
+            className="mt-1"
+          />
+          <span>
+            <span className="block font-medium text-[var(--color-text)]">Enable Public Website</span>
+            <span className="block text-[var(--color-text-muted)]">
+              When disabled, public pages are hidden and visitors are redirected to `/login`.
+            </span>
+          </span>
+        </label>
+
         <Input label="Address" value={form.address} onChange={(event) => update("address", event.target.value)} />
 
         <div className="grid gap-4 md:grid-cols-3">
@@ -76,6 +93,7 @@ export function GeneralSettings({ initialValue, onSaved, onDirtyChange }: Genera
                   phone: form.phone || null,
                   email: form.email || null,
                   websiteUrl: form.websiteUrl || null,
+                  websiteEnabled: form.websiteEnabled,
                   address: form.address || null,
                   city: form.city || null,
                   state: form.state || null,

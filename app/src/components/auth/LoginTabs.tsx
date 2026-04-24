@@ -7,7 +7,6 @@ import { MagicLinkForm } from "@/components/auth/MagicLinkForm";
 import { WhatsAppOtpForm } from "@/components/auth/WhatsAppOtpForm";
 import { EmailPasswordForm } from "@/components/auth/EmailPasswordForm";
 import { GoogleLoginButton } from "@/components/auth/GoogleLoginButton";
-import { authClient } from "@/lib/auth-client";
 import { cn } from "@/lib/utils";
 
 const tabs = ["email", "whatsapp", "magic"] as const;
@@ -83,7 +82,6 @@ export function LoginTabs({ returnUrl }: LoginTabsProps): JSX.Element {
         return;
       }
 
-      await authClient.signOut();
       setError("This login is for admin/staff accounts only.");
     } finally {
       setLoading(false);
@@ -128,8 +126,11 @@ export function LoginTabs({ returnUrl }: LoginTabsProps): JSX.Element {
         setError(json.error ?? "OTP verification failed");
         return;
       }
-
-      window.location.href = callbackUrl;
+      const json = (await response.json().catch(() => null)) as
+        | { redirectTo?: string; returnUrl?: string }
+        | null;
+      const safeRedirect = json?.redirectTo ?? json?.returnUrl ?? callbackUrl;
+      window.location.href = safeRedirect.startsWith("/") ? safeRedirect : "/login";
     } finally {
       setLoading(false);
     }

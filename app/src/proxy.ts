@@ -48,6 +48,22 @@ function isPublicPath(pathname: string): boolean {
   );
 }
 
+function isWebsiteSurfacePath(pathname: string): boolean {
+  return (
+    pathname === "/" ||
+    pathname === "/about" ||
+    pathname === "/rides" ||
+    pathname === "/booking" ||
+    pathname.startsWith("/booking/confirmation/") ||
+    pathname === "/packages" ||
+    pathname === "/offers" ||
+    pathname === "/gallery" ||
+    pathname === "/contact" ||
+    pathname === "/inquiry" ||
+    pathname.startsWith("/guest")
+  );
+}
+
 export async function proxy(request: NextRequest): Promise<NextResponse> {
   const pathname = request.nextUrl.pathname;
   const requestId = request.headers.get("x-request-id") ?? crypto.randomUUID();
@@ -60,6 +76,22 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
 
   if (pathname === "/auth/register") {
     return withSecurityHeaders(NextResponse.redirect(new URL("/register", request.url)), requestId);
+  }
+
+  if (isWebsiteSurfacePath(pathname)) {
+    try {
+      const statusUrl = new URL("/api/v1/public/site-status", request.url);
+      const statusRes = await fetch(statusUrl, { cache: "no-store" });
+      if (statusRes.ok) {
+        const status = (await statusRes.json()) as { websiteEnabled?: boolean };
+        if (status.websiteEnabled === false) {
+          const loginUrl = new URL("/login", request.url);
+          return withSecurityHeaders(NextResponse.redirect(loginUrl), requestId);
+        }
+      }
+    } catch {
+      // Fail-open: page-level/server-level guards still enforce.
+    }
   }
 
   if (isPublicPath(pathname)) {

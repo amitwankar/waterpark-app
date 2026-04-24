@@ -24,6 +24,7 @@ interface SettingsPayload {
   phone: string | null;
   email: string | null;
   websiteUrl: string | null;
+  websiteEnabled: boolean;
   address: string | null;
   city: string | null;
   state: string | null;
@@ -205,6 +206,7 @@ export default function SettingsPage(): JSX.Element {
               phone: settings.phone ?? "",
               email: settings.email ?? "",
               websiteUrl: settings.websiteUrl ?? "",
+              websiteEnabled: settings.websiteEnabled ?? true,
               address: settings.address ?? "",
               city: settings.city ?? "",
               state: settings.state ?? "",

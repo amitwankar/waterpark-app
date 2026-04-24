@@ -95,6 +95,7 @@ async function ensureSingleton() {
     data: {
       id: SINGLETON_ID,
       parkName: "AquaWorld Park",
+      websiteEnabled: true,
       timezone: "Asia/Kolkata",
       operatingHours: DEFAULT_OPERATING_HOURS as unknown as object,
     },
@@ -142,6 +143,7 @@ export async function upsertSettings(data: Record<string, unknown>) {
     data: {
       id: SINGLETON_ID,
       parkName: "AquaWorld Park",
+      websiteEnabled: true,
       timezone: "Asia/Kolkata",
       operatingHours: DEFAULT_OPERATING_HOURS as unknown as object,
       ...data,

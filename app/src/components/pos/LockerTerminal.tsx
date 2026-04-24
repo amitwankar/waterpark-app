@@ -244,13 +244,33 @@ export function LockerTerminal({
             <p className="text-xs text-indigo-200 mt-0.5">{terminalId} · {cashierName}</p>
           </div>
         </div>
-        <button
-          type="button"
-          onClick={() => setShowCloser(true)}
-          className="text-xs bg-indigo-600 hover:bg-indigo-500 px-3 py-1.5 rounded-lg transition-colors"
-        >
-          Close Session
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              window.alert("POS session is active. Close session first to exit.");
+            }}
+            className="text-xs bg-indigo-600 hover:bg-indigo-500 px-3 py-1.5 rounded-lg transition-colors"
+          >
+            POS Dashboard
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              window.alert("POS session is active. Close session first to exit.");
+            }}
+            className="text-xs bg-indigo-600 hover:bg-indigo-500 px-3 py-1.5 rounded-lg transition-colors"
+          >
+            Exit POS
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowCloser(true)}
+            className="text-xs bg-indigo-600 hover:bg-indigo-500 px-3 py-1.5 rounded-lg transition-colors"
+          >
+            Close Session
+          </button>
+        </div>
       </header>
 
       <div className="bg-white border-b border-gray-200 px-4 flex gap-4 shrink-0">
