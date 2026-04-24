@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useTransition } from "react";
 
+import { useToast } from "@/components/feedback/Toast";
+import { fetchJson } from "@/components/settings/http";
 import { Drawer } from "@/components/ui/Drawer";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -28,6 +30,7 @@ export interface HolidayDrawerProps {
 }
 
 export function HolidayDrawer({ open, onClose, selectedDate, holiday, onSaved }: HolidayDrawerProps): JSX.Element {
+  const { pushToast } = useToast();
   const [isPending, startTransition] = useTransition();
   const [name, setName] = useState("");
   const [type, setType] = useState<HolidayType>("CLOSED");
@@ -82,21 +85,31 @@ export function HolidayDrawer({ open, onClose, selectedDate, holiday, onSaved }:
               startTransition(() => {
                 const method = holiday ? "PUT" : "POST";
                 const url = holiday ? `/api/v1/settings/holidays/${holiday.id}` : "/api/v1/settings/holidays";
-                void fetch(url, {
-                  method,
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    date: selectedDate,
-                    name,
-                    type,
-                    specialOpenTime,
-                    specialCloseTime,
-                    message,
-                  }),
-                }).then(() => {
-                  onSaved();
-                  onClose();
-                });
+                void (async () => {
+                  try {
+                    await fetchJson(url, {
+                      method,
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        date: selectedDate,
+                        name,
+                        type,
+                        specialOpenTime,
+                        specialCloseTime,
+                        message,
+                      }),
+                    });
+                    onSaved();
+                    onClose();
+                    pushToast({ title: holiday ? "Holiday updated" : "Holiday created", variant: "success" });
+                  } catch (error: unknown) {
+                    pushToast({
+                      title: "Save failed",
+                      message: error instanceof Error ? error.message : "Could not save holiday",
+                      variant: "error",
+                    });
+                  }
+                })();
               });
             }}
           >
@@ -109,12 +122,22 @@ export function HolidayDrawer({ open, onClose, selectedDate, holiday, onSaved }:
               loading={isPending}
               onClick={() => {
                 startTransition(() => {
-                  void fetch(`/api/v1/settings/holidays/${holiday.id}`, {
-                    method: "DELETE",
-                  }).then(() => {
-                    onSaved();
-                    onClose();
-                  });
+                  void (async () => {
+                    try {
+                      await fetchJson(`/api/v1/settings/holidays/${holiday.id}`, {
+                        method: "DELETE",
+                      });
+                      onSaved();
+                      onClose();
+                      pushToast({ title: "Holiday deleted", variant: "success" });
+                    } catch (error: unknown) {
+                      pushToast({
+                        title: "Delete failed",
+                        message: error instanceof Error ? error.message : "Could not delete holiday",
+                        variant: "error",
+                      });
+                    }
+                  })();
                 });
               }}
             >

@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 
+import { useToast } from "@/components/feedback/Toast";
+import { fetchJson } from "@/components/settings/http";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
@@ -27,6 +29,7 @@ export interface GeneralSettingsProps {
 }
 
 export function GeneralSettings({ initialValue, onSaved, onDirtyChange }: GeneralSettingsProps): JSX.Element {
+  const { pushToast } = useToast();
   const [form, setForm] = useState<GeneralSettingsValue>(initialValue);
   const [isPending, startTransition] = useTransition();
 
@@ -84,25 +87,35 @@ export function GeneralSettings({ initialValue, onSaved, onDirtyChange }: Genera
           loading={isPending}
           onClick={() => {
             startTransition(() => {
-              void fetch("/api/v1/settings/general", {
-                method: "PUT",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  parkName: form.parkName,
-                  logoUrl: form.logoUrl || null,
-                  phone: form.phone || null,
-                  email: form.email || null,
-                  websiteUrl: form.websiteUrl || null,
-                  websiteEnabled: form.websiteEnabled,
-                  address: form.address || null,
-                  city: form.city || null,
-                  state: form.state || null,
-                  pincode: form.pincode || null,
-                  timezone: form.timezone,
-                }),
-              })
-                .then((res) => res.json())
-                .then((next) => onSaved(next));
+              void (async () => {
+                try {
+                  const next = await fetchJson<Record<string, unknown>>("/api/v1/settings/general", {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      parkName: form.parkName,
+                      logoUrl: form.logoUrl || null,
+                      phone: form.phone || null,
+                      email: form.email || null,
+                      websiteUrl: form.websiteUrl || null,
+                      websiteEnabled: form.websiteEnabled,
+                      address: form.address || null,
+                      city: form.city || null,
+                      state: form.state || null,
+                      pincode: form.pincode || null,
+                      timezone: form.timezone,
+                    }),
+                  });
+                  onSaved(next);
+                  pushToast({ title: "General settings saved", variant: "success" });
+                } catch (error: unknown) {
+                  pushToast({
+                    title: "Save failed",
+                    message: error instanceof Error ? error.message : "Could not save general settings",
+                    variant: "error",
+                  });
+                }
+              })();
             });
           }}
         >

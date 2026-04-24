@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 
 import { useToast } from "@/components/feedback/Toast";
+import { fetchJson } from "@/components/settings/http";
 import { InviteUserDrawer } from "@/components/settings/InviteUserDrawer";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -23,26 +24,23 @@ export interface UserManagementProps {
 }
 
 async function fetchAllUsers(): Promise<UserRow[]> {
-  const [adminsRes, staffRes] = await Promise.all([
-    fetch("/api/v1/admin-users"),
-    fetch("/api/v1/staff"),
+  const [admins, staff] = await Promise.all([
+    fetchJson<Array<{
+      id: string;
+      name: string;
+      mobile: string;
+      email: string | null;
+      isActive: boolean;
+    }>>("/api/v1/admin-users"),
+    fetchJson<Array<{
+      id: string;
+      name: string;
+      mobile: string;
+      email: string | null;
+      subRole: string | null;
+      isActive: boolean;
+    }>>("/api/v1/staff"),
   ]);
-
-  const admins = (await adminsRes.json()) as Array<{
-    id: string;
-    name: string;
-    mobile: string;
-    email: string | null;
-    isActive: boolean;
-  }>;
-  const staff = (await staffRes.json()) as Array<{
-    id: string;
-    name: string;
-    mobile: string;
-    email: string | null;
-    subRole: string | null;
-    isActive: boolean;
-  }>;
 
   return [
     ...admins.map((row) => ({
@@ -83,16 +81,16 @@ export function UserManagement({ initialUsers }: UserManagementProps): JSX.Eleme
     const confirmPassword = window.prompt("Confirm new password");
     if (!confirmPassword) return;
 
-    const res = await fetch(`/api/v1/users/${user.id}/password`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ password, confirmPassword }),
-    });
-    const payload = (await res.json().catch(() => null)) as { error?: string } | null;
-    if (!res.ok) {
+    try {
+      await fetchJson(`/api/v1/users/${user.id}/password`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password, confirmPassword }),
+      });
+    } catch (error: unknown) {
       pushToast({
         title: "Password update failed",
-        message: payload?.error ?? "Could not update password",
+        message: error instanceof Error ? error.message : "Could not update password",
         variant: "error",
       });
       return;
@@ -161,9 +159,18 @@ export function UserManagement({ initialUsers }: UserManagementProps): JSX.Eleme
                                 method: "PUT",
                                 headers: { "Content-Type": "application/json" },
                                 body: JSON.stringify({ isActive: !user.isActive }),
-                              }).then(() => {
-                                setUsers((prev) => prev.map((item) => (item.id === user.id ? { ...item, isActive: !item.isActive } : item)));
-                              });
+                              })
+                                .then((res) => {
+                                  if (!res.ok) throw new Error("Could not update staff status");
+                                  setUsers((prev) => prev.map((item) => (item.id === user.id ? { ...item, isActive: !item.isActive } : item)));
+                                })
+                                .catch((error: unknown) => {
+                                  pushToast({
+                                    title: "Status update failed",
+                                    message: error instanceof Error ? error.message : "Could not update staff status",
+                                    variant: "error",
+                                  });
+                                });
                             });
                           }}
                         >

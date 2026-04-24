@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 
+import { useToast } from "@/components/feedback/Toast";
+import { fetchJson } from "@/components/settings/http";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
@@ -21,6 +23,7 @@ export interface CapacitySettingsProps {
 }
 
 export function CapacitySettings({ initialValue, onSaved, onDirtyChange }: CapacitySettingsProps): JSX.Element {
+  const { pushToast } = useToast();
   const [form, setForm] = useState(initialValue);
   const [isPending, startTransition] = useTransition();
 
@@ -52,13 +55,23 @@ export function CapacitySettings({ initialValue, onSaved, onDirtyChange }: Capac
           loading={isPending}
           onClick={() => {
             startTransition(() => {
-              void fetch("/api/v1/settings/capacity", {
-                method: "PUT",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(form),
-              })
-                .then((res) => res.json())
-                .then((next) => onSaved(next));
+              void (async () => {
+                try {
+                  const next = await fetchJson<Record<string, unknown>>("/api/v1/settings/capacity", {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(form),
+                  });
+                  onSaved(next);
+                  pushToast({ title: "Capacity settings saved", variant: "success" });
+                } catch (error: unknown) {
+                  pushToast({
+                    title: "Save failed",
+                    message: error instanceof Error ? error.message : "Could not save capacity settings",
+                    variant: "error",
+                  });
+                }
+              })();
             });
           }}
         >

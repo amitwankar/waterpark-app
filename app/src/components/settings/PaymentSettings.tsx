@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 
+import { useToast } from "@/components/feedback/Toast";
+import { fetchJson } from "@/components/settings/http";
 import { SensitiveField } from "@/components/settings/SensitiveField";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
@@ -31,6 +33,7 @@ export interface PaymentSettingsProps {
 }
 
 export function PaymentSettings({ initialValue, onSaved, onDirtyChange }: PaymentSettingsProps): JSX.Element {
+  const { pushToast } = useToast();
   const [form, setForm] = useState(initialValue);
   const [isPending, startTransition] = useTransition();
 
@@ -44,16 +47,22 @@ export function PaymentSettings({ initialValue, onSaved, onDirtyChange }: Paymen
   }
 
   async function updateSecret(field: "razorpayKeyId" | "razorpayKeySecret", value: string): Promise<void> {
-    const response = await fetch("/api/v1/settings/secrets", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ field, value }),
-    });
-    if (!response.ok) return;
-    const refresh = await fetch("/api/v1/settings");
-    if (!refresh.ok) return;
-    const next = await refresh.json();
-    onSaved(next);
+    try {
+      await fetchJson("/api/v1/settings/secrets", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ field, value }),
+      });
+      const next = await fetchJson<Record<string, unknown>>("/api/v1/settings");
+      onSaved(next);
+      pushToast({ title: "Secret updated", variant: "success" });
+    } catch (error: unknown) {
+      pushToast({
+        title: "Update failed",
+        message: error instanceof Error ? error.message : "Could not update secret",
+        variant: "error",
+      });
+    }
   }
 
   return (
@@ -119,26 +128,36 @@ export function PaymentSettings({ initialValue, onSaved, onDirtyChange }: Paymen
           loading={isPending}
           onClick={() => {
             startTransition(() => {
-              void fetch("/api/v1/settings/payment", {
-                method: "PUT",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  razorpayEnabled: form.razorpayEnabled,
-                  manualUpiEnabled: form.manualUpiEnabled,
-                  parkUpiId: form.upiId,
-                  parkUpiName: form.upiName,
-                  parkUpiQrImageUrl: form.upiQrImageUrl,
-                  depositEnabled: form.depositEnabled,
-                  depositPercent: form.depositPercent,
-                  depositLabel: form.depositLabel,
-                  splitEnabled: form.splitEnabled,
-                  maxSplitMethods: form.maxSplitMethods,
-                  minSplitAmount: form.minSplitAmount,
-                  refundDeductionPercent: form.refundDeductionPercent,
-                }),
-              })
-                .then((res) => res.json())
-                .then((next) => onSaved(next));
+              void (async () => {
+                try {
+                  const next = await fetchJson<Record<string, unknown>>("/api/v1/settings/payment", {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      razorpayEnabled: form.razorpayEnabled,
+                      manualUpiEnabled: form.manualUpiEnabled,
+                      parkUpiId: form.upiId,
+                      parkUpiName: form.upiName,
+                      parkUpiQrImageUrl: form.upiQrImageUrl,
+                      depositEnabled: form.depositEnabled,
+                      depositPercent: form.depositPercent,
+                      depositLabel: form.depositLabel,
+                      splitEnabled: form.splitEnabled,
+                      maxSplitMethods: form.maxSplitMethods,
+                      minSplitAmount: form.minSplitAmount,
+                      refundDeductionPercent: form.refundDeductionPercent,
+                    }),
+                  });
+                  onSaved(next);
+                  pushToast({ title: "Payment settings saved", variant: "success" });
+                } catch (error: unknown) {
+                  pushToast({
+                    title: "Save failed",
+                    message: error instanceof Error ? error.message : "Could not save payment settings",
+                    variant: "error",
+                  });
+                }
+              })();
             });
           }}
         >

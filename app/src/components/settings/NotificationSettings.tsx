@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 
+import { useToast } from "@/components/feedback/Toast";
+import { fetchJson } from "@/components/settings/http";
 import { SensitiveField } from "@/components/settings/SensitiveField";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
@@ -25,6 +27,7 @@ export interface NotificationSettingsProps {
 }
 
 export function NotificationSettings({ initialValue, onSaved, onDirtyChange }: NotificationSettingsProps): JSX.Element {
+  const { pushToast } = useToast();
   const [form, setForm] = useState(initialValue);
   const [isPending, startTransition] = useTransition();
 
@@ -38,14 +41,22 @@ export function NotificationSettings({ initialValue, onSaved, onDirtyChange }: N
   }
 
   async function updateSecret(field: "whatsappApiKey" | "smsApiKey", value: string): Promise<void> {
-    const payload = { ...form, [field]: value };
-    const response = await fetch("/api/v1/settings/notifications", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const next = await response.json();
-    onSaved(next);
+    try {
+      const payload = { ...form, [field]: value };
+      const next = await fetchJson<Record<string, unknown>>("/api/v1/settings/notifications", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      onSaved(next);
+      pushToast({ title: "Notification secret updated", variant: "success" });
+    } catch (error: unknown) {
+      pushToast({
+        title: "Update failed",
+        message: error instanceof Error ? error.message : "Could not update notification secret",
+        variant: "error",
+      });
+    }
   }
 
   return (
@@ -96,13 +107,23 @@ export function NotificationSettings({ initialValue, onSaved, onDirtyChange }: N
           loading={isPending}
           onClick={() => {
             startTransition(() => {
-              void fetch("/api/v1/settings/notifications", {
-                method: "PUT",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(form),
-              })
-                .then((res) => res.json())
-                .then((next) => onSaved(next));
+              void (async () => {
+                try {
+                  const next = await fetchJson<Record<string, unknown>>("/api/v1/settings/notifications", {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(form),
+                  });
+                  onSaved(next);
+                  pushToast({ title: "Notification settings saved", variant: "success" });
+                } catch (error: unknown) {
+                  pushToast({
+                    title: "Save failed",
+                    message: error instanceof Error ? error.message : "Could not save notification settings",
+                    variant: "error",
+                  });
+                }
+              })();
             });
           }}
         >

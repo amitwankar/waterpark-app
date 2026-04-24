@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { useToast } from "@/components/feedback/Toast";
+import { fetchJson } from "@/components/settings/http";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
@@ -15,6 +17,7 @@ interface DepartmentRow {
 }
 
 export function DepartmentMasterSettings(): JSX.Element {
+  const { pushToast } = useToast();
   const [rows, setRows] = useState<DepartmentRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
@@ -25,9 +28,14 @@ export function DepartmentMasterSettings(): JSX.Element {
   async function load() {
     setLoading(true);
     try {
-      const res = await fetch("/api/v1/settings/departments");
-      const data = (await res.json()) as DepartmentRow[];
+      const data = await fetchJson<DepartmentRow[]>("/api/v1/settings/departments");
       setRows(data);
+    } catch (error: unknown) {
+      pushToast({
+        title: "Load failed",
+        message: error instanceof Error ? error.message : "Could not load departments",
+        variant: "error",
+      });
     } finally {
       setLoading(false);
     }
@@ -43,7 +51,7 @@ export function DepartmentMasterSettings(): JSX.Element {
     if (!newRow.name.trim()) return;
     setCreating(true);
     try {
-      const res = await fetch("/api/v1/settings/departments", {
+      await fetchJson("/api/v1/settings/departments", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -51,37 +59,57 @@ export function DepartmentMasterSettings(): JSX.Element {
           code: newRow.code.trim() || undefined,
         }),
       });
-      if (res.ok) {
-        setNewRow({ name: "", code: "" });
-        await load();
-      }
+      setNewRow({ name: "", code: "" });
+      await load();
+      pushToast({ title: "Department added", variant: "success" });
+    } catch (error: unknown) {
+      pushToast({
+        title: "Create failed",
+        message: error instanceof Error ? error.message : "Could not create department",
+        variant: "error",
+      });
     } finally {
       setCreating(false);
     }
   }
 
   async function saveEdit(id: string) {
-    const res = await fetch(`/api/v1/settings/departments/${id}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: draft.name.trim(),
-        code: draft.code.trim() || null,
-        isActive: draft.isActive,
-      }),
-    });
-
-    if (res.ok) {
+    try {
+      await fetchJson(`/api/v1/settings/departments/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: draft.name.trim(),
+          code: draft.code.trim() || null,
+          isActive: draft.isActive,
+        }),
+      });
       setEditingId(null);
       await load();
+      pushToast({ title: "Department updated", variant: "success" });
+    } catch (error: unknown) {
+      pushToast({
+        title: "Update failed",
+        message: error instanceof Error ? error.message : "Could not update department",
+        variant: "error",
+      });
     }
   }
 
   async function deleteDepartment(id: string) {
     const ok = window.confirm("Delete this department?");
     if (!ok) return;
-    await fetch(`/api/v1/settings/departments/${id}`, { method: "DELETE" });
-    await load();
+    try {
+      await fetchJson(`/api/v1/settings/departments/${id}`, { method: "DELETE" });
+      await load();
+      pushToast({ title: "Department deleted", variant: "success" });
+    } catch (error: unknown) {
+      pushToast({
+        title: "Delete failed",
+        message: error instanceof Error ? error.message : "Could not delete department",
+        variant: "error",
+      });
+    }
   }
 
   return (

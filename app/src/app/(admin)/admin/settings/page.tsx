@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { useToast } from "@/components/feedback/Toast";
+import { fetchJson } from "@/components/settings/http";
 import { AuditLogTable, type AuditLogRow } from "@/components/settings/AuditLogTable";
 import { CapacitySettings } from "@/components/settings/CapacitySettings";
 import { DepartmentMasterSettings } from "@/components/settings/DepartmentMasterSettings";
@@ -94,6 +96,7 @@ function toNumber(value: number | string): number {
 }
 
 export default function SettingsPage(): JSX.Element {
+  const { pushToast } = useToast();
   const [activeId, setActiveId] = useState<string>("general");
   const [settings, setSettings] = useState<SettingsPayload | null>(null);
   const [holidays, setHolidays] = useState<HolidayItem[]>([]);
@@ -107,42 +110,48 @@ export default function SettingsPage(): JSX.Element {
   );
 
   useEffect(() => {
-    void Promise.all([
-      fetch("/api/v1/settings").then((res) => res.json()),
-      fetch("/api/v1/settings/holidays").then((res) => res.json()),
-      fetch("/api/v1/admin-users").then((res) => res.json()),
-      fetch("/api/v1/staff").then((res) => res.json()),
-      fetch("/api/v1/settings/audit-log?page=1&pageSize=20").then((res) => res.json()),
-    ]).then(([settingsPayload, holidayRows, adminRows, staffRows, auditPayload]) => {
-      setSettings(settingsPayload as SettingsPayload);
-      setHolidays(holidayRows as HolidayItem[]);
+    void (async () => {
+      try {
+        const [settingsPayload, holidayRows, adminRows, staffRows, auditPayload] = await Promise.all([
+          fetchJson<SettingsPayload>("/api/v1/settings"),
+          fetchJson<HolidayItem[]>("/api/v1/settings/holidays"),
+          fetchJson<Array<{ id: string; name: string; mobile: string; email: string | null; isActive: boolean }>>("/api/v1/admin-users"),
+          fetchJson<Array<{ id: string; name: string; mobile: string; email: string | null; subRole: string | null; isActive: boolean }>>("/api/v1/staff"),
+          fetchJson<{ rows?: AuditLogRow[] }>("/api/v1/settings/audit-log?page=1&pageSize=20"),
+        ]);
 
-      const adminUsers = (adminRows as Array<{ id: string; name: string; mobile: string; email: string | null; isActive: boolean }>).map(
-        (row) => ({
+        setSettings(settingsPayload);
+        setHolidays(holidayRows);
+
+        const adminUsers = adminRows.map((row) => ({
           id: row.id,
           name: row.name,
           mobile: row.mobile,
           email: row.email,
-          role: "ADMIN",
+          role: "ADMIN" as const,
           subRole: null,
           isActive: row.isActive,
-        }),
-      );
-      const staffUsers = (staffRows as Array<{ id: string; name: string; mobile: string; email: string | null; subRole: string | null; isActive: boolean }>).map(
-        (row) => ({
+        }));
+        const staffUsers = staffRows.map((row) => ({
           id: row.id,
           name: row.name,
           mobile: row.mobile,
           email: row.email,
-          role: "EMPLOYEE",
+          role: "EMPLOYEE" as const,
           subRole: row.subRole,
           isActive: row.isActive,
-        }),
-      );
-      setUsers([...adminUsers, ...staffUsers]);
-      setAuditRows((auditPayload?.rows ?? []) as AuditLogRow[]);
-    });
-  }, []);
+        }));
+        setUsers([...adminUsers, ...staffUsers]);
+        setAuditRows(auditPayload.rows ?? []);
+      } catch (error: unknown) {
+        pushToast({
+          title: "Failed to load settings",
+          message: error instanceof Error ? error.message : "Please reload the page",
+          variant: "error",
+        });
+      }
+    })();
+  }, [pushToast]);
 
   const markDirty = useCallback((section: string, dirty: boolean): void => {
     setDirtySections((prev) => {

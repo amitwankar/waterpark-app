@@ -66,12 +66,18 @@ async function http(baseUrl: string, jar: Map<string, string>, path: string, opt
     headers.set("cookie", cookieHeader);
   }
 
-  const response = await fetch(url, {
-    method: options.method ?? "GET",
-    headers,
-    body: options.body ? JSON.stringify(options.body) : undefined,
-    redirect: "manual",
-  });
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: options.method ?? "GET",
+      headers,
+      body: options.body ? JSON.stringify(options.body) : undefined,
+      redirect: "manual",
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Request failed for ${options.method ?? "GET"} ${path}: ${message}`);
+  }
 
   mergeSetCookieIntoJar(jar, response.headers.get("set-cookie"));
 

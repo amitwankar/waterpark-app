@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 
+import { useToast } from "@/components/feedback/Toast";
+import { fetchJson } from "@/components/settings/http";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
@@ -27,6 +29,7 @@ export interface PricingSettingsProps {
 }
 
 export function PricingSettings({ initialValue, onSaved, onDirtyChange }: PricingSettingsProps): JSX.Element {
+  const { pushToast } = useToast();
   const [form, setForm] = useState<PricingSettingsValue>(initialValue);
   const [isPending, startTransition] = useTransition();
 
@@ -72,13 +75,23 @@ export function PricingSettings({ initialValue, onSaved, onDirtyChange }: Pricin
           loading={isPending}
           onClick={() => {
             startTransition(() => {
-              void fetch("/api/v1/settings/pricing", {
-                method: "PUT",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(form),
-              })
-                .then((res) => res.json())
-                .then((next) => onSaved(next));
+              void (async () => {
+                try {
+                  const next = await fetchJson<Record<string, unknown>>("/api/v1/settings/pricing", {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(form),
+                  });
+                  onSaved(next);
+                  pushToast({ title: "Pricing settings saved", variant: "success" });
+                } catch (error: unknown) {
+                  pushToast({
+                    title: "Save failed",
+                    message: error instanceof Error ? error.message : "Could not save pricing settings",
+                    variant: "error",
+                  });
+                }
+              })();
             });
           }}
         >

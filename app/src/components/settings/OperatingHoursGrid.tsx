@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 
+import { useToast } from "@/components/feedback/Toast";
+import { fetchJson } from "@/components/settings/http";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 
@@ -20,6 +22,7 @@ export interface OperatingHoursGridProps {
 }
 
 export function OperatingHoursGrid({ value, onSaved, onDirtyChange }: OperatingHoursGridProps): JSX.Element {
+  const { pushToast } = useToast();
   const [rows, setRows] = useState<OperatingDayRow[]>(value);
   const [isPending, startTransition] = useTransition();
 
@@ -102,13 +105,23 @@ export function OperatingHoursGrid({ value, onSaved, onDirtyChange }: OperatingH
           loading={isPending}
           onClick={() => {
             startTransition(() => {
-              void fetch("/api/v1/settings/operating-hours", {
-                method: "PUT",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ operatingHours: rows }),
-              })
-                .then((res) => res.json())
-                .then((next) => onSaved(next));
+              void (async () => {
+                try {
+                  const next = await fetchJson<Record<string, unknown>>("/api/v1/settings/operating-hours", {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ operatingHours: rows }),
+                  });
+                  onSaved(next);
+                  pushToast({ title: "Operating hours saved", variant: "success" });
+                } catch (error: unknown) {
+                  pushToast({
+                    title: "Save failed",
+                    message: error instanceof Error ? error.message : "Could not save operating hours",
+                    variant: "error",
+                  });
+                }
+              })();
             });
           }}
         >
