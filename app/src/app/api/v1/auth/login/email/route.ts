@@ -4,7 +4,7 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { getPostLoginRoute } from "@/lib/post-login-route";
-import { verifyPassword } from "@/lib/password";
+import { hashPassword, verifyPassword } from "@/lib/password";
 
 const schema = z.object({
   email: z.string().email(),
@@ -58,6 +58,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   if (!response.ok && loginCandidate.passwordHash && (await verifyPassword(password, loginCandidate.passwordHash))) {
+    const normalizedHash = await hashPassword(password);
     const credentialAccount = await db.account.findFirst({
       where: {
         userId: loginCandidate.id,
@@ -69,7 +70,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (credentialAccount) {
       await db.account.update({
         where: { id: credentialAccount.id },
-        data: { password: loginCandidate.passwordHash },
+        data: { password: normalizedHash },
       });
     } else {
       await db.account.create({
@@ -77,10 +78,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           userId: loginCandidate.id,
           providerId: "credential",
           accountId: loginCandidate.id,
-          password: loginCandidate.passwordHash,
+          password: normalizedHash,
         },
       });
     }
+    await db.user.update({
+      where: { id: loginCandidate.id },
+      data: { passwordHash: normalizedHash },
+    });
 
     try {
       response = await auth.api.signInEmail({
