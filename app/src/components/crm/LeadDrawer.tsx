@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { Drawer } from "@/components/ui/Drawer";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
+import { getApiErrorMessage } from "@/lib/api-error";
 
 export type LeadDrawerMode = "create" | "edit";
 
@@ -195,16 +196,7 @@ export function LeadDrawer({ open, onClose, onCreated, onSaved, assignees, mode 
                     }
                   | null;
                 if (!response.ok) {
-                  const fieldMessage = payload?.errors?.fieldErrors
-                    ? Object.entries(payload.errors.fieldErrors)
-                        .flatMap(([field, messages]) => (messages ?? []).map((message) => `${field}: ${message}`))
-                        .join(", ")
-                    : "";
-                  throw new Error(
-                    fieldMessage ||
-                      payload?.message ||
-                      `Could not ${mode === "create" ? "create" : "update"} lead`,
-                  );
+                  throw new Error(getApiErrorMessage(payload, `Could not ${mode === "create" ? "create" : "update"} lead`));
                 }
                 clearForm();
                 onClose();

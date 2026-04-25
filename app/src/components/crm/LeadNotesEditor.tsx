@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { useToast } from "@/components/feedback/Toast";
 import { Button } from "@/components/ui/Button";
+import { getApiErrorMessage } from "@/lib/api-error";
 
 interface LeadNotesEditorProps {
   leadId: string;
@@ -26,8 +27,8 @@ export function LeadNotesEditor({ leadId, initialNotes }: LeadNotesEditorProps):
         body: JSON.stringify({ notes }),
       });
       if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as { message?: string } | null;
-        throw new Error(payload?.message ?? "Failed to save notes");
+        const payload = (await response.json().catch(() => null)) as unknown;
+        throw new Error(getApiErrorMessage(payload, "Failed to save notes"));
       }
 
       await fetch(`/api/v1/crm/leads/${leadId}/activity`, {
@@ -70,4 +71,3 @@ export function LeadNotesEditor({ leadId, initialNotes }: LeadNotesEditorProps):
     </div>
   );
 }
-

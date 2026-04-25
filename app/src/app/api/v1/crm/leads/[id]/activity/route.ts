@@ -9,6 +9,13 @@ const activitySchema = z.object({
   notes: z.string().trim().min(1).max(2000),
 });
 
+function firstValidationMessage(error: z.ZodError): string {
+  const issue = error.issues[0];
+  if (!issue) return "Validation failed";
+  const path = issue.path.length > 0 ? `${issue.path.join(".")}: ` : "";
+  return `${path}${issue.message}`;
+}
+
 function getRole(session: unknown): string {
   const candidate = session as { user?: { role?: string } };
   return String(candidate?.user?.role ?? "USER");
@@ -43,7 +50,13 @@ export async function POST(
   const body = await request.json().catch(() => null);
   const parsed = activitySchema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json({ message: "Invalid payload", errors: parsed.error.flatten() }, { status: 400 });
+    return NextResponse.json(
+      {
+        message: firstValidationMessage(parsed.error),
+        errors: parsed.error.flatten(),
+      },
+      { status: 400 },
+    );
   }
 
   const activity = await db.leadActivity.create({

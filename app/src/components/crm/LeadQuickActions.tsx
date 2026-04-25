@@ -7,6 +7,7 @@ import { useToast } from "@/components/feedback/Toast";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
+import { getApiErrorMessage } from "@/lib/api-error";
 
 interface LeadQuickActionsProps {
   leadId: string;
@@ -53,8 +54,8 @@ export function LeadQuickActions({ leadId, mobile }: LeadQuickActionsProps): JSX
         body: JSON.stringify({ followUpAt: iso }),
       });
       if (!updateRes.ok) {
-        const payload = (await updateRes.json().catch(() => null)) as { message?: string } | null;
-        throw new Error(payload?.message ?? "Unable to schedule follow-up");
+        const payload = (await updateRes.json().catch(() => null)) as unknown;
+        throw new Error(getApiErrorMessage(payload, "Unable to schedule follow-up"));
       }
 
       if (scheduleNote.trim().length > 0) {
@@ -91,11 +92,18 @@ export function LeadQuickActions({ leadId, mobile }: LeadQuickActionsProps): JSX
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ stage: "BOOKED", followUpAt: null }),
       });
-      if (!response.ok) throw new Error("Failed to mark lead as booked");
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as unknown;
+        throw new Error(getApiErrorMessage(payload, "Failed to mark lead as booked"));
+      }
       pushToast({ title: "Lead moved to BOOKED", variant: "success" });
       router.refresh();
-    } catch {
-      pushToast({ title: "Could not update stage", variant: "error" });
+    } catch (error) {
+      pushToast({
+        title: "Could not update stage",
+        message: error instanceof Error ? error.message : "Unknown error",
+        variant: "error",
+      });
     } finally {
       setMarkingBooked(false);
     }
@@ -110,11 +118,18 @@ export function LeadQuickActions({ leadId, mobile }: LeadQuickActionsProps): JSX
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ stage: "LOST", lostReason: reason.trim() || null, followUpAt: null }),
       });
-      if (!response.ok) throw new Error("Failed to mark lead as lost");
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as unknown;
+        throw new Error(getApiErrorMessage(payload, "Failed to mark lead as lost"));
+      }
       pushToast({ title: "Lead moved to LOST", variant: "warning" });
       router.refresh();
-    } catch {
-      pushToast({ title: "Could not update stage", variant: "error" });
+    } catch (error) {
+      pushToast({
+        title: "Could not update stage",
+        message: error instanceof Error ? error.message : "Unknown error",
+        variant: "error",
+      });
     } finally {
       setMarkingLost(false);
     }

@@ -215,6 +215,10 @@ function getDateInputRange(): { min: string; max: string } {
   };
 }
 
+function getTodayDateInputValue(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
 function buildParticipantDrafts(
   ticketLines: TicketLine[],
   ticketMap: Map<string, TicketType>,
@@ -254,6 +258,8 @@ export default function AdminBookingsPage(): JSX.Element {
   const [loading, setLoading] = useState<boolean>(true);
   const [search, setSearch] = useState<string>("");
   const [status, setStatus] = useState<string>("");
+  const [fromDate, setFromDate] = useState<string>(getTodayDateInputValue);
+  const [toDate, setToDate] = useState<string>(getTodayDateInputValue);
   const [page, setPage] = useState<number>(1);
   const [perPage, setPerPage] = useState<number>(10);
   const [pagination, setPagination] = useState<BookingListResponse["pagination"]>({
@@ -426,6 +432,12 @@ export default function AdminBookingsPage(): JSX.Element {
       }
       if (status) {
         query.set("status", status);
+      }
+      if (fromDate) {
+        query.set("from", fromDate);
+      }
+      if (toDate) {
+        query.set("to", toDate);
       }
       query.set("source", "PREBOOKING");
 
@@ -1079,7 +1091,7 @@ export default function AdminBookingsPage(): JSX.Element {
         ]}
       />
 
-      <div className="grid gap-3 rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4 md:grid-cols-[1fr_220px_auto]">
+      <div className="grid gap-3 rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4 lg:grid-cols-[minmax(280px,1fr)_200px_170px_170px_auto]">
         <Input
           placeholder="Search by booking number, guest, mobile"
           value={search}
@@ -1097,9 +1109,15 @@ export default function AdminBookingsPage(): JSX.Element {
             { label: "CANCELLED", value: "CANCELLED" },
           ]}
         />
+        <Input label="From" type="date" value={fromDate} onChange={(event) => setFromDate(event.target.value)} />
+        <Input label="To" type="date" value={toDate} onChange={(event) => setToDate(event.target.value)} />
         <Button
           variant="outline"
           onClick={() => {
+            if (fromDate && toDate && fromDate > toDate) {
+              pushToast({ title: "Invalid date range", message: "From date must be on or before To date.", variant: "error" });
+              return;
+            }
             setPage(1);
             void loadBookings();
           }}

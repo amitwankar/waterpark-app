@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
+import { getApiErrorMessage } from "@/lib/api-error";
 
 export interface LeadTableRow {
   id: string;
@@ -79,8 +80,8 @@ export function LeadTable({ rows, assignees }: LeadTableProps): JSX.Element {
         body: JSON.stringify({ followUpAt: parsed.toISOString() }),
       });
       if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as { message?: string } | null;
-        pushToast({ title: "Schedule failed", message: payload?.message ?? "Could not schedule follow-up", variant: "error" });
+        const payload = (await response.json().catch(() => null)) as unknown;
+        pushToast({ title: "Schedule failed", message: getApiErrorMessage(payload, "Could not schedule follow-up"), variant: "error" });
         return;
       }
       pushToast({ title: "Follow-up scheduled", variant: "success" });
@@ -96,7 +97,7 @@ export function LeadTable({ rows, assignees }: LeadTableProps): JSX.Element {
     const response = await fetch(`/api/v1/crm/leads/${leadId}`, { method: "DELETE" });
     const payload = (await response.json().catch(() => null)) as { message?: string } | null;
     if (!response.ok) {
-      pushToast({ title: "Delete failed", message: payload?.message ?? "Could not delete lead", variant: "error" });
+      pushToast({ title: "Delete failed", message: getApiErrorMessage(payload, "Could not delete lead"), variant: "error" });
       return;
     }
     pushToast({ title: "Lead deleted", variant: "success" });

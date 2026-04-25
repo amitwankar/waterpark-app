@@ -7,6 +7,7 @@ import { useToast } from "@/components/feedback/Toast";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
+import { getApiErrorMessage } from "@/lib/api-error";
 import type { LeadProposalMeta, ProposalStatus } from "@/lib/crm-meta";
 
 interface LeadProposalEditorProps {
@@ -50,8 +51,8 @@ export function LeadProposalEditor({ leadId, initialProposal }: LeadProposalEdit
         }),
       });
       if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as { message?: string } | null;
-        throw new Error(payload?.message ?? "Failed to save proposal");
+        const payload = (await response.json().catch(() => null)) as unknown;
+        throw new Error(getApiErrorMessage(payload, "Failed to save proposal"));
       }
 
       pushToast({ title: "Proposal saved", variant: "success" });
@@ -128,4 +129,3 @@ export function LeadProposalEditor({ leadId, initialProposal }: LeadProposalEdit
     </div>
   );
 }
-

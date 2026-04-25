@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 import { LeadCard, type LeadCardData } from "@/components/crm/LeadCard";
+import { getApiErrorMessage } from "@/lib/api-error";
 
 export type PipelineStage = "NEW" | "CONTACTED" | "INTERESTED" | "PROPOSAL_SENT" | "BOOKED" | "LOST";
 
@@ -59,8 +60,8 @@ export function LeadKanban({ leads, assignees }: LeadKanbanProps): JSX.Element {
       body: JSON.stringify({ stage }),
     });
     if (!response.ok) {
-      const payload = (await response.json().catch(() => null)) as { message?: string } | null;
-      throw new Error(payload?.message ?? "Unable to move lead");
+      const payload = (await response.json().catch(() => null)) as unknown;
+      throw new Error(getApiErrorMessage(payload, "Unable to move lead"));
     }
   }
 
@@ -69,7 +70,7 @@ export function LeadKanban({ leads, assignees }: LeadKanbanProps): JSX.Element {
     const response = await fetch(`/api/v1/crm/leads/${leadId}`, { method: "DELETE" });
     const payload = (await response.json().catch(() => null)) as { message?: string } | null;
     if (!response.ok) {
-      pushToast({ title: "Delete failed", message: payload?.message ?? "Could not delete lead", variant: "error" });
+      pushToast({ title: "Delete failed", message: getApiErrorMessage(payload, "Could not delete lead"), variant: "error" });
       return;
     }
     pushToast({ title: "Lead deleted", variant: "success" });
@@ -105,8 +106,8 @@ export function LeadKanban({ leads, assignees }: LeadKanbanProps): JSX.Element {
         body: JSON.stringify({ followUpAt: parsed.toISOString() }),
       });
       if (!response.ok) {
-        const payload = (await response.json().catch(() => null)) as { message?: string } | null;
-        pushToast({ title: "Schedule failed", message: payload?.message ?? "Could not schedule follow-up", variant: "error" });
+        const payload = (await response.json().catch(() => null)) as unknown;
+        pushToast({ title: "Schedule failed", message: getApiErrorMessage(payload, "Could not schedule follow-up"), variant: "error" });
         return;
       }
       pushToast({ title: "Follow-up scheduled", variant: "success" });
