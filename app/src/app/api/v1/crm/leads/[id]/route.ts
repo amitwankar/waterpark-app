@@ -9,9 +9,21 @@ const leadSourceValues = ["WEBSITE", "WHATSAPP", "PHONE", "WALKIN", "SOCIAL", "R
 const leadStageValues = ["NEW", "CONTACTED", "INTERESTED", "PROPOSAL_SENT", "BOOKED", "LOST"] as const;
 const userIdSchema = z.string().trim().min(1).max(191);
 
+function normalizeMobile(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  return value.replace(/\D/g, "").slice(-10);
+}
+
+function firstValidationMessage(error: z.ZodError): string {
+  const issue = error.issues[0];
+  if (!issue) return "Validation failed";
+  const path = issue.path.length > 0 ? `${issue.path.join(".")}: ` : "";
+  return `${path}${issue.message}`;
+}
+
 const updateSchema = z.object({
   name: z.string().trim().min(2).max(100).optional(),
-  mobile: z.string().trim().regex(/^[6-9]\d{9}$/).optional(),
+  mobile: z.preprocess(normalizeMobile, z.string().regex(/^[6-9]\d{9}$/)).optional(),
   email: z.string().trim().email().max(255).optional().nullable(),
   source: z.enum(leadSourceValues).optional(),
   stage: z.enum(leadStageValues).optional(),
@@ -24,7 +36,16 @@ const updateSchema = z.object({
     (value) => (typeof value === "string" && value.trim() === "" ? null : value),
     userIdSchema.optional().nullable(),
   ),
-  followUpAt: z.string().datetime().optional().nullable(),
+  followUpAt: z
+    .preprocess(
+      (value) => (typeof value === "string" && value.trim() === "" ? null : value),
+      z
+        .string()
+        .trim()
+        .refine((value) => !Number.isNaN(new Date(value).getTime()), "Invalid follow-up date/time")
+        .optional()
+        .nullable(),
+    ),
   lostReason: z.string().trim().max(1000).optional().nullable(),
   proposal: z
     .object({
@@ -109,7 +130,13 @@ export async function PUT(
   const body = await request.json().catch(() => null);
   const parsed = updateSchema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json({ message: "Invalid payload", errors: parsed.error.flatten() }, { status: 400 });
+    return NextResponse.json(
+      {
+        message: firstValidationMessage(parsed.error),
+        errors: parsed.error.flatten(),
+      },
+      { status: 400 },
+    );
   }
 
   const payload = parsed.data;

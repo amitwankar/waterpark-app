@@ -185,9 +185,26 @@ export function LeadDrawer({ open, onClose, onCreated, onSaved, assignees, mode 
               }),
             })
               .then(async (response) => {
-                const payload = (await response.json().catch(() => null)) as { message?: string } | null;
+                const payload = (await response.json().catch(() => null)) as
+                  | {
+                      message?: string;
+                      errors?: {
+                        formErrors?: string[];
+                        fieldErrors?: Record<string, string[] | undefined>;
+                      };
+                    }
+                  | null;
                 if (!response.ok) {
-                  throw new Error(payload?.message ?? `Could not ${mode === "create" ? "create" : "update"} lead`);
+                  const fieldMessage = payload?.errors?.fieldErrors
+                    ? Object.entries(payload.errors.fieldErrors)
+                        .flatMap(([field, messages]) => (messages ?? []).map((message) => `${field}: ${message}`))
+                        .join(", ")
+                    : "";
+                  throw new Error(
+                    fieldMessage ||
+                      payload?.message ||
+                      `Could not ${mode === "create" ? "create" : "update"} lead`,
+                  );
                 }
                 clearForm();
                 onClose();

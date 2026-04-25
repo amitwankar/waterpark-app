@@ -17,6 +17,18 @@ const leadSourceValues = ["WEBSITE", "WHATSAPP", "PHONE", "WALKIN", "SOCIAL", "R
 const leadStageValues = ["NEW", "CONTACTED", "INTERESTED", "PROPOSAL_SENT", "BOOKED", "LOST"] as const;
 const userIdSchema = z.string().trim().min(1).max(191);
 
+function normalizeMobile(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  return value.replace(/\D/g, "").slice(-10);
+}
+
+function firstValidationMessage(error: z.ZodError): string {
+  const issue = error.issues[0];
+  if (!issue) return "Validation failed";
+  const path = issue.path.length > 0 ? `${issue.path.join(".")}: ` : "";
+  return `${path}${issue.message}`;
+}
+
 const querySchema = z.object({
   page: z.preprocess(
     (value) => (value === "" || value === null || value === undefined ? undefined : value),
@@ -46,7 +58,7 @@ const querySchema = z.object({
 
 const createSchema = z.object({
   name: z.string().trim().min(2).max(100),
-  mobile: z.string().trim().regex(/^[6-9]\d{9}$/),
+  mobile: z.preprocess(normalizeMobile, z.string().regex(/^[6-9]\d{9}$/)),
   email: z.string().trim().email().max(255).optional().nullable(),
   source: z.enum(leadSourceValues),
   stage: z.enum(leadStageValues).optional(),
@@ -59,7 +71,16 @@ const createSchema = z.object({
     (value) => (typeof value === "string" && value.trim() === "" ? null : value),
     userIdSchema.optional().nullable(),
   ),
-  followUpAt: z.string().datetime().optional().nullable(),
+  followUpAt: z
+    .preprocess(
+      (value) => (typeof value === "string" && value.trim() === "" ? null : value),
+      z
+        .string()
+        .trim()
+        .refine((value) => !Number.isNaN(new Date(value).getTime()), "Invalid follow-up date/time")
+        .optional()
+        .nullable(),
+    ),
 });
 
 function getRole(session: unknown): string {
@@ -105,7 +126,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   const parsed = querySchema.safeParse(Object.fromEntries(request.nextUrl.searchParams.entries()));
   if (!parsed.success) {
-    return NextResponse.json({ message: "Invalid query", errors: parsed.error.flatten() }, { status: 400 });
+    return NextResponse.json(
+      {
+        message: firstValidationMessage(parsed.error),
+        errors: parsed.error.flatten(),
+      },
+      { status: 400 },
+    );
   }
 
   const query = parsed.data;
@@ -188,7 +215,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const body = await request.json().catch(() => null);
   const parsed = createSchema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json({ message: "Invalid payload", errors: parsed.error.flatten() }, { status: 400 });
+    return NextResponse.json(
+      {
+        message: firstValidationMessage(parsed.error),
+        errors: parsed.error.flatten(),
+      },
+      { status: 400 },
+    );
   }
 
   const payload = parsed.data;
