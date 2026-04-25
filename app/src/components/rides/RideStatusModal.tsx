@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 
+import { useToast } from "@/components/feedback/Toast";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { Select } from "@/components/ui/Select";
@@ -15,12 +16,20 @@ export interface RideStatusModalProps {
 }
 
 export function RideStatusModal({ open, onClose, rideId, currentStatus, onUpdated }: RideStatusModalProps): JSX.Element {
+  const { pushToast } = useToast();
   const [status, setStatus] = useState<RideStatusModalProps["currentStatus"]>(currentStatus);
   const [reason, setReason] = useState("");
   const [autoCreateWorkOrder, setAutoCreateWorkOrder] = useState(true);
   const [isPending, startTransition] = useTransition();
 
   const needsReason = status === "MAINTENANCE" || status === "CLOSED";
+
+  useEffect(() => {
+    if (!open) return;
+    setStatus(currentStatus);
+    setReason("");
+    setAutoCreateWorkOrder(true);
+  }, [open, currentStatus]);
 
   return (
     <Modal
@@ -33,15 +42,39 @@ export function RideStatusModal({ open, onClose, rideId, currentStatus, onUpdate
           <Button
             loading={isPending}
             onClick={() => {
+              if (needsReason && reason.trim().length < 2) {
+                pushToast({
+                  title: "Reason required",
+                  message: "Please provide a valid reason before updating status.",
+                  variant: "error",
+                });
+                return;
+              }
               startTransition(() => {
-                void fetch(`/api/v1/rides/${rideId}/status`, {
-                  method: "PUT",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ status, reason, autoCreateWorkOrder }),
-                }).then(() => {
+                void (async () => {
+                  const payload = {
+                    status,
+                    autoCreateWorkOrder,
+                    ...(reason.trim() ? { reason: reason.trim() } : {}),
+                  };
+                  const response = await fetch(`/api/v1/rides/${rideId}/status`, {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload),
+                  });
+                  const data = (await response.json().catch(() => null)) as { message?: string } | null;
+                  if (!response.ok) {
+                    pushToast({
+                      title: "Status update failed",
+                      message: data?.message ?? "Could not update ride status",
+                      variant: "error",
+                    });
+                    return;
+                  }
+                  pushToast({ title: "Ride status updated", variant: "success" });
                   onUpdated?.();
                   onClose();
-                });
+                })();
               });
             }}
           >

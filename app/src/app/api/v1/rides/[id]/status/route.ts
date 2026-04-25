@@ -6,7 +6,14 @@ import { createMaintenanceWorkOrderForRide, getSessionUser, requireAdminOrEmploy
 
 const statusSchema = z.object({
   status: z.enum(["ACTIVE", "MAINTENANCE", "CLOSED", "SEASONAL"]),
-  reason: z.string().trim().min(2).max(500).optional(),
+  reason: z.preprocess(
+    (value) => {
+      if (typeof value !== "string") return value;
+      const trimmed = value.trim();
+      return trimmed.length === 0 ? undefined : trimmed;
+    },
+    z.string().min(2).max(500).optional(),
+  ),
   autoCreateWorkOrder: z.boolean().optional(),
   priority: z.enum(["LOW", "MEDIUM", "HIGH", "CRITICAL"]).optional(),
 });

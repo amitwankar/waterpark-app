@@ -15,14 +15,33 @@ const leadTypeValues = [
 
 const leadSourceValues = ["WEBSITE", "WHATSAPP", "PHONE", "WALKIN", "SOCIAL", "REFERRAL", "EVENT"] as const;
 const leadStageValues = ["NEW", "CONTACTED", "INTERESTED", "PROPOSAL_SENT", "BOOKED", "LOST"] as const;
+const userIdSchema = z.string().trim().min(1).max(191);
 
 const querySchema = z.object({
-  page: z.coerce.number().int().min(1).default(1),
-  pageSize: z.coerce.number().int().min(1).max(100).default(20),
-  search: z.string().trim().optional(),
-  stage: z.enum(leadStageValues).optional(),
-  source: z.enum(leadSourceValues).optional(),
-  followUpDue: z.enum(["1", "0"]).optional(),
+  page: z.preprocess(
+    (value) => (value === "" || value === null || value === undefined ? undefined : value),
+    z.coerce.number().int().min(1).default(1),
+  ),
+  pageSize: z.preprocess(
+    (value) => (value === "" || value === null || value === undefined ? undefined : value),
+    z.coerce.number().int().min(1).max(100).default(20),
+  ),
+  search: z.preprocess(
+    (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+    z.string().trim().optional(),
+  ),
+  stage: z.preprocess(
+    (value) => (value === "" || value === null || value === undefined ? undefined : value),
+    z.enum(leadStageValues).optional(),
+  ),
+  source: z.preprocess(
+    (value) => (value === "" || value === null || value === undefined ? undefined : value),
+    z.enum(leadSourceValues).optional(),
+  ),
+  followUpDue: z.preprocess(
+    (value) => (value === "" || value === null || value === undefined ? undefined : value),
+    z.enum(["1", "0"]).optional(),
+  ),
 });
 
 const createSchema = z.object({
@@ -36,7 +55,10 @@ const createSchema = z.object({
   expectedVisit: z.string().date().optional().nullable(),
   budget: z.coerce.number().min(0).max(100000000).optional().nullable(),
   notes: z.string().trim().max(3000).optional().nullable(),
-  assignedTo: z.string().cuid().optional().nullable(),
+  assignedTo: z.preprocess(
+    (value) => (typeof value === "string" && value.trim() === "" ? null : value),
+    userIdSchema.optional().nullable(),
+  ),
   followUpAt: z.string().datetime().optional().nullable(),
 });
 

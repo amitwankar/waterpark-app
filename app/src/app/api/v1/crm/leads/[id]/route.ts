@@ -7,6 +7,7 @@ import { db } from "@/lib/db";
 
 const leadSourceValues = ["WEBSITE", "WHATSAPP", "PHONE", "WALKIN", "SOCIAL", "REFERRAL", "EVENT"] as const;
 const leadStageValues = ["NEW", "CONTACTED", "INTERESTED", "PROPOSAL_SENT", "BOOKED", "LOST"] as const;
+const userIdSchema = z.string().trim().min(1).max(191);
 
 const updateSchema = z.object({
   name: z.string().trim().min(2).max(100).optional(),
@@ -19,7 +20,10 @@ const updateSchema = z.object({
   expectedVisit: z.string().date().optional().nullable(),
   budget: z.coerce.number().min(0).max(100000000).optional().nullable(),
   notes: z.string().trim().max(3000).optional().nullable(),
-  assignedTo: z.string().cuid().optional().nullable(),
+  assignedTo: z.preprocess(
+    (value) => (typeof value === "string" && value.trim() === "" ? null : value),
+    userIdSchema.optional().nullable(),
+  ),
   followUpAt: z.string().datetime().optional().nullable(),
   lostReason: z.string().trim().max(1000).optional().nullable(),
   proposal: z
