@@ -1090,7 +1090,7 @@ export default function AdminBookingsPage(): JSX.Element {
           onChange={(event) => setStatus(event.target.value)}
           options={[
             { label: "All Status", value: "" },
-            { label: "PENDING", value: "PENDING" },
+            { label: "BOOKED", value: "PENDING" },
             { label: "CONFIRMED", value: "CONFIRMED" },
             { label: "CHECKED_IN", value: "CHECKED_IN" },
             { label: "COMPLETED", value: "COMPLETED" },

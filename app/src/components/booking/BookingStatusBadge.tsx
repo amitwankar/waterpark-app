@@ -5,6 +5,9 @@ export interface BookingStatusBadgeProps {
 }
 
 export function BookingStatusBadge({ status }: BookingStatusBadgeProps): JSX.Element {
+  if (status === "PENDING") {
+    return <Badge variant="warning">BOOKED</Badge>;
+  }
   if (status === "CONFIRMED") {
     return <Badge variant="success">CONFIRMED</Badge>;
   }
@@ -19,4 +22,3 @@ export function BookingStatusBadge({ status }: BookingStatusBadgeProps): JSX.Ele
   }
   return <Badge variant="warning">{status}</Badge>;
 }
-
