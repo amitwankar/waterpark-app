@@ -948,6 +948,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         subtotal: Number(record.subtotal),
         gstAmount: Number(record.gstAmount),
         discountAmount: Number(record.discountAmount),
+        gateEnteredCount: Number(record.gateEnteredCount ?? 0),
         totalAmount: Number(record.totalAmount),
         couponId: record.couponId,
         notes: userNotes,

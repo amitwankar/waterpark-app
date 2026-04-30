@@ -30,6 +30,7 @@ export function DeviceQrScanner({ onDetected, className }: DeviceQrScannerProps)
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [supported, setSupported] = useState(true);
+  const [permissionState, setPermissionState] = useState<"prompt" | "granted" | "denied" | "unknown">("unknown");
 
   onDetectedRef.current = onDetected;
 
@@ -93,6 +94,33 @@ export function DeviceQrScanner({ onDetected, className }: DeviceQrScannerProps)
     setError(null);
     setStarting(true);
     try {
+      if (typeof window !== "undefined" && !window.isSecureContext) {
+        setError("Camera requires HTTPS. Open this page on secure HTTPS domain.");
+        setEnabled(false);
+        return;
+      }
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setError("Camera API not available in this browser.");
+        setEnabled(false);
+        return;
+      }
+      if ("permissions" in navigator && navigator.permissions?.query) {
+        try {
+          const status = await navigator.permissions.query({ name: "camera" as PermissionName });
+          setPermissionState((status.state as "prompt" | "granted" | "denied") ?? "unknown");
+          status.onchange = () => {
+            setPermissionState((status.state as "prompt" | "granted" | "denied") ?? "unknown");
+          };
+          if (status.state === "denied") {
+            setError("Camera permission is blocked. Enable camera access in browser site settings, then retry.");
+            setEnabled(false);
+            return;
+          }
+        } catch {
+          setPermissionState("unknown");
+        }
+      }
+
       if (!canUseBarcodeDetector || !window.BarcodeDetector) {
         setSupported(false);
         setError("Live QR camera scan is not supported in this browser. Use Chrome/Edge latest.");
@@ -117,8 +145,18 @@ export function DeviceQrScanner({ onDetected, className }: DeviceQrScannerProps)
       detectorRef.current = new window.BarcodeDetector({ formats: ["qr_code"] });
       runDetectLoop();
       setEnabled(true);
+      setPermissionState("granted");
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Unable to access camera.";
+      const name = typeof err === "object" && err && "name" in err ? String((err as { name?: string }).name) : "";
+      let message = err instanceof Error ? err.message : "Unable to access camera.";
+      if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+        message = "Camera permission denied. Allow camera in browser settings and tap Start Camera again.";
+        setPermissionState("denied");
+      } else if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+        message = "No camera found on this device.";
+      } else if (name === "NotReadableError" || name === "TrackStartError") {
+        message = "Camera is in use by another app. Close other camera apps and retry.";
+      }
       setError(message);
       setEnabled(false);
     } finally {
@@ -162,8 +200,12 @@ export function DeviceQrScanner({ onDetected, className }: DeviceQrScannerProps)
         </button>
         {supported ? <span className="text-xs text-[var(--color-text-muted)]">Point camera at QR code</span> : null}
       </div>
+      {permissionState === "denied" ? (
+        <p className="mt-1 text-xs text-amber-700">
+          Camera blocked: open browser site settings and allow Camera permission.
+        </p>
+      ) : null}
       {error ? <p className="mt-1 text-xs text-red-600">{error}</p> : null}
     </div>
   );
 }
-
