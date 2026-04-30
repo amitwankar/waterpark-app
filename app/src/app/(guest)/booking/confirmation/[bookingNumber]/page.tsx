@@ -25,7 +25,7 @@ export default async function BookingConfirmationPage({ params }: ConfirmationPa
         },
         transactions: {
           where: { status: "PAID" },
-          select: { amount: true, paymentMethod: true, createdAt: true },
+          select: { amount: true, method: true, createdAt: true },
           orderBy: { createdAt: "asc" },
         },
       },
@@ -42,7 +42,7 @@ export default async function BookingConfirmationPage({ params }: ConfirmationPa
   const gstAmount = Number(booking.gstAmount);
   const discountAmount = Number(booking.discountAmount);
   const totalAmount = Number(booking.totalAmount);
-  const totalPaid = booking.transactions.reduce((s, t) => s + Number(t.amount), 0);
+  const totalPaid = booking.transactions.reduce((s: number, t: { amount: unknown }) => s + Number(t.amount), 0);
   const balance = Math.max(0, totalAmount - totalPaid);
 
   const METHOD_LABELS: Record<string, string> = {
@@ -114,7 +114,7 @@ export default async function BookingConfirmationPage({ params }: ConfirmationPa
             <div className="space-y-1">
               <p className="text-xs font-semibold uppercase tracking-widest text-gray-500 mb-2">Items</p>
               {booking.bookingTickets.length > 0 ? (
-                booking.bookingTickets.map((bt) => (
+                booking.bookingTickets.map((bt: { id: string; quantity: number; unitPrice: unknown; ticketType: { name: string } }) => (
                   <ReceiptRow
                     key={bt.id}
                     label={`${bt.ticketType.name} × ${bt.quantity}`}
@@ -148,10 +148,10 @@ export default async function BookingConfirmationPage({ params }: ConfirmationPa
                 <Divider />
                 <div className="space-y-1">
                   <p className="text-xs font-semibold uppercase tracking-widest text-gray-500 mb-2">Payment</p>
-                  {booking.transactions.map((t, i) => (
+                  {booking.transactions.map((t: { amount: unknown; method: string }, i: number) => (
                     <ReceiptRow
                       key={i}
-                      label={METHOD_LABELS[t.paymentMethod] ?? t.paymentMethod}
+                      label={METHOD_LABELS[t.method] ?? t.method}
                       value={formatCurrency(Number(t.amount))}
                     />
                   ))}
