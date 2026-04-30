@@ -165,10 +165,11 @@ function AdminBookingDetailContent(): JSX.Element {
             <div className="rounded-[var(--radius-lg)] border border-[var(--color-border)] p-3">
               <h3 className="mb-2 text-sm font-semibold text-[var(--color-text)]">Amount Summary</h3>
               <div className="space-y-2 text-sm">
+                <SummaryRow label="Amount" value={formatCurrency(booking.subtotal + booking.discountAmount)} />
+                <SummaryRow label="Discount" value={formatCurrency(booking.discountAmount)} />
                 <SummaryRow label="Subtotal" value={formatCurrency(booking.subtotal)} />
                 <SummaryRow label="GST" value={formatCurrency(booking.gstAmount)} />
-                <SummaryRow label="Discount" value={formatCurrency(booking.discountAmount)} />
-                <SummaryRow label="Total" value={formatCurrency(booking.totalAmount)} highlight />
+                <SummaryRow label="Final Total" value={formatCurrency(booking.totalAmount)} highlight />
               </div>
             </div>
 

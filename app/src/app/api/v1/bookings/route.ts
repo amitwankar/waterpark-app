@@ -469,7 +469,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const addOnGstAmount = packageGstAmount + foodGstAmount + lockerGstAmount + costumeGstAmount + rideGstAmount;
   const grossSubtotal = roundMoney(ticketSubtotal + addOnSubtotal);
   const grossGstAmount = roundMoney(ticketGstAmount + addOnGstAmount);
-  const grossTotal = roundMoney(grossSubtotal + grossGstAmount);
 
   const customDiscountType = (extras.customDiscountType ?? "NONE") as BookingCustomDiscountType;
   const customDiscountValue = Number(extras.customDiscountValue ?? 0);
@@ -478,16 +477,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
   let customDiscountAmount = 0;
   if (customDiscountType === "PERCENTAGE") {
-    customDiscountAmount = roundMoney((Math.max(0, grossTotal - discountAmount) * customDiscountValue) / 100);
+    customDiscountAmount = roundMoney((Math.max(0, grossSubtotal - discountAmount) * customDiscountValue) / 100);
   } else if (customDiscountType === "AMOUNT") {
     customDiscountAmount = roundMoney(customDiscountValue);
   }
-  const totalDiscountAmount = roundMoney(Math.min(grossTotal, Math.max(0, discountAmount + customDiscountAmount)));
+  const totalDiscountAmount = roundMoney(Math.min(grossSubtotal, Math.max(0, discountAmount + customDiscountAmount)));
+  const discountedSubtotal = roundMoney(Math.max(0, grossSubtotal - totalDiscountAmount));
+  const effectiveGstRate = grossSubtotal > 0 ? grossGstAmount / grossSubtotal : 0;
+  const discountedGstAmount = roundMoney(discountedSubtotal * effectiveGstRate);
   const pricing = {
-    subtotal: grossSubtotal,
-    gstAmount: grossGstAmount,
+    subtotal: discountedSubtotal,
+    gstAmount: discountedGstAmount,
     discountAmount: totalDiscountAmount,
-    totalAmount: roundMoney(Math.max(0, grossTotal - totalDiscountAmount)),
+    totalAmount: roundMoney(Math.max(0, discountedSubtotal + discountedGstAmount)),
   };
 
   const pax = totalGuests;

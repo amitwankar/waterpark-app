@@ -121,10 +121,11 @@ export function ReceiptModal({ receiptId: receiptRef, type = "booking", onClose 
       `*Items:*`,
       ...r.items.map((i) => `${i.name} × ${i.quantity}  ₹${(i.unitPrice * i.quantity).toFixed(2)}`),
       ``,
+      `Amount: ₹${(r.subtotal + r.discountAmount).toFixed(2)}`,
+      r.discountAmount > 0 ? `Discount: -₹${r.discountAmount.toFixed(2)}` : `Discount: -₹0.00`,
       `Subtotal: ₹${r.subtotal.toFixed(2)}`,
-      r.gstAmount > 0 ? `GST: ₹${r.gstAmount.toFixed(2)}` : null,
-      r.discountAmount > 0 ? `Discount: -₹${r.discountAmount.toFixed(2)}` : null,
-      `*Total: ₹${r.totalAmount.toFixed(2)}*`,
+      `GST: ₹${r.gstAmount.toFixed(2)}`,
+      `*Final Total: ₹${r.totalAmount.toFixed(2)}*`,
       r.issuedCoupon ? `Issued Coupon: ${r.issuedCoupon.code}` : null,
       r.issuedCoupon ? `Coupon Valid Till: ${new Date(r.issuedCoupon.validTo).toLocaleString()}` : null,
       ``,
@@ -185,23 +186,23 @@ export function ReceiptModal({ receiptId: receiptRef, type = "booking", onClose 
 
               <div className="border-t border-dashed border-gray-300 pt-2 space-y-0.5">
                 <div className="flex justify-between">
+                  <span>Amount</span>
+                  <span>₹{(receipt.subtotal + receipt.discountAmount).toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between text-green-700">
+                  <span>Discount</span>
+                  <span>-₹{receipt.discountAmount.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between">
                   <span>Subtotal</span>
                   <span>₹{receipt.subtotal.toFixed(2)}</span>
                 </div>
-                {receipt.gstAmount > 0 && (
-                  <div className="flex justify-between">
-                    <span>GST</span>
-                    <span>₹{receipt.gstAmount.toFixed(2)}</span>
-                  </div>
-                )}
-                {receipt.discountAmount > 0 && (
-                  <div className="flex justify-between text-green-700">
-                    <span>Discount</span>
-                    <span>-₹{receipt.discountAmount.toFixed(2)}</span>
-                  </div>
-                )}
+                <div className="flex justify-between">
+                  <span>GST</span>
+                  <span>₹{receipt.gstAmount.toFixed(2)}</span>
+                </div>
                 <div className="flex justify-between font-bold text-sm border-t border-dashed border-gray-300 pt-1 mt-1">
-                  <span>TOTAL</span>
+                  <span>Final Total</span>
                   <span>₹{receipt.totalAmount.toFixed(2)}</span>
                 </div>
               </div>

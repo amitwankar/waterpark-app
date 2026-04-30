@@ -19,6 +19,11 @@ interface TicketTerminalProps {
   onSessionClosed: () => void;
 }
 
+type ApiValidationIssue = {
+  path?: Array<string | number>;
+  message?: string;
+};
+
 type IdProofType = "AADHAAR" | "DRIVING_LICENSE" | "PAN" | "PASSPORT" | "VOTER_ID" | "OTHER";
 
 interface LookupBooking {
@@ -208,7 +213,6 @@ export function TicketTerminal({
   const [splitMinAmount, setSplitMinAmount] = useState(10);
   const [splitMaxMethods, setSplitMaxMethods] = useState(4);
   const [idProofEnabled, setIdProofEnabled] = useState(false);
-  const [idProofRequiredAbove, setIdProofRequiredAbove] = useState(10);
   const [lockerGstRate, setLockerGstRate] = useState(0);
   const [defaultGstRate, setDefaultGstRate] = useState(18);
   const [rideOptions, setRideOptions] = useState<RideAddOnOption[]>([]);
@@ -421,9 +425,6 @@ export function TicketTerminal({
         setSplitMaxMethods(paymentOptions.split.maxMethods);
       }
       setIdProofEnabled(Boolean(paymentOptions?.idProof?.enabled));
-      if (typeof paymentOptions?.idProof?.requiredAbove === "number") {
-        setIdProofRequiredAbove(paymentOptions.idProof.requiredAbove);
-      }
       if (typeof parkConfig?.lockerGstRate === "number") {
         setLockerGstRate(parkConfig.lockerGstRate);
       }
@@ -559,12 +560,6 @@ export function TicketTerminal({
       });
     });
   }, [participantSlots, guestName]);
-  const idProofRequired = idProofEnabled && totalGuests > idProofRequiredAbove;
-  const idProofValid = !idProofRequired || (
-    idProofType === "OTHER"
-      ? Boolean(idProofNumber.trim() && idProofLabel.trim())
-      : Boolean(idProofNumber.trim())
-  );
   const foodTotal = Math.round(foodLines.reduce((sum, line) => sum + line.amount, 0) * 100) / 100;
   const packageTotal = Math.round(packageLines.reduce((sum, line) => sum + line.amount, 0) * 100) / 100;
   const packageBaseSubtotal = Math.round(packageLines.reduce((sum, line) => sum + line.baseAmount, 0) * 100) / 100;
@@ -603,7 +598,7 @@ export function TicketTerminal({
   const splitRemaining = Math.round((payableGrandTotal - splitTotal) * 100) / 100;
   const isBalanced = Math.abs(splitRemaining) < 0.01;
   const hasCartItems = cart.items.length > 0 || packageLines.length > 0 || foodLines.length > 0 || lockerLines.length > 0 || costumeLines.length > 0 || rideLines.length > 0;
-  const canSell = hasCartItems && isBalanced && cart.splitLines.length > 0 && mobileValid && idProofValid;
+  const canSell = hasCartItems && isBalanced && cart.splitLines.length > 0 && mobileValid;
 
   async function handleSell() {
     if (!canSell) return;
@@ -659,9 +654,20 @@ export function TicketTerminal({
           paymentLines: cart.splitLines,
         }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Sale failed");
-      setReceiptRef(data.bookingId);
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        status?: string;
+        issues?: ApiValidationIssue[];
+        bookingId?: string;
+      };
+      if (!res.ok) {
+        const firstIssue = Array.isArray(data.issues) ? data.issues[0] : undefined;
+        const issuePath = firstIssue?.path?.join(".");
+        const issueMessage = firstIssue?.message;
+        const fallbackMessage = data.error ?? "Sale failed";
+        throw new Error(issuePath && issueMessage ? `${issuePath}: ${issueMessage}` : issueMessage ?? fallbackMessage);
+      }
+      setReceiptRef(data.bookingId ?? null);
       cart.clearCart();
       setGuestName("");
       setGuestMobile("");
@@ -1427,9 +1433,9 @@ export function TicketTerminal({
                     className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
                   />
                 </div>
-                {idProofRequired ? (
-                  <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
-                    ID proof is required because total guests exceed {idProofRequiredAbove}.
+                {idProofEnabled ? (
+                  <p className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded px-2 py-1">
+                    ID proof capture is optional for POS booking.
                   </p>
                 ) : null}
               </div>

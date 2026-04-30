@@ -27,6 +27,7 @@ export function OrderSummary({
   gstRate,
   items = [],
 }: OrderSummaryProps): JSX.Element {
+  const amountBeforeDiscount = subtotal + discountAmount;
   return (
     <Card>
       <CardHeader>
@@ -49,11 +50,12 @@ export function OrderSummary({
             <div className="h-px bg-[var(--color-border)]" />
           </>
         ) : null}
+        <SummaryRow label="Amount" value={formatCurrency(amountBeforeDiscount)} />
+        <SummaryRow label="Discount" value={`- ${formatCurrency(discountAmount)}`} />
         <SummaryRow label="Subtotal" value={formatCurrency(subtotal)} />
         <SummaryRow label={`GST (${gstRate}%)`} value={formatCurrency(gstAmount)} />
-        <SummaryRow label="Discount" value={`- ${formatCurrency(discountAmount)}`} />
         <div className="h-px bg-[var(--color-border)]" />
-        <SummaryRow label="Total" value={formatCurrency(totalAmount)} highlight />
+        <SummaryRow label="Final Total" value={formatCurrency(totalAmount)} highlight />
       </CardBody>
     </Card>
   );

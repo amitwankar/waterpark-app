@@ -167,16 +167,19 @@ export async function POST(req: NextRequest) {
   const parsed = saleSchema.safeParse(body);
   if (!parsed.success) {
     const firstIssue = parsed.error.issues[0];
+    const firstIssuePath = firstIssue?.path?.join(".") ?? "";
+    const firstIssueMessage = firstIssue?.message ?? "Invalid request payload";
+    const readableError = firstIssuePath ? `${firstIssuePath}: ${firstIssueMessage}` : firstIssueMessage;
     requestLogger.warn(
       {
         issues: parsed.error.issues.length,
-        firstIssuePath: firstIssue?.path?.join(".") ?? null,
-        firstIssueMessage: firstIssue?.message ?? null,
+        firstIssuePath: firstIssuePath || null,
+        firstIssueMessage: firstIssueMessage || null,
       },
       "POS ticket sale validation failed",
     );
     return NextResponse.json(
-      { error: "Validation failed", issues: parsed.error.issues },
+      { error: readableError, status: "VALIDATION_FAILED", issues: parsed.error.issues },
       { status: 422 }
     );
   }
@@ -863,22 +866,6 @@ export async function POST(req: NextRequest) {
   if (dayConfig && !dayConfig.isOpen) {
     requestLogger.warn({ visitDate, weekDay: visitWeekDay }, "POS ticket sale rejected: closed operating day");
     return NextResponse.json({ error: "Park is closed on selected day" }, { status: 400 });
-  }
-
-  const needsIdProof = Boolean(settings.idProofEnabled) && totalGuests > settings.idProofRequiredAbove;
-
-  if (needsIdProof) {
-    if (!idProofType || !idProofNumber?.trim()) {
-      requestLogger.warn({ totalGuests, threshold: settings.idProofRequiredAbove }, "POS ticket sale rejected: missing required id proof");
-      return NextResponse.json(
-        { error: `ID proof is required for bookings above ${settings.idProofRequiredAbove} guests` },
-        { status: 400 },
-      );
-    }
-    if (idProofType === "OTHER" && !idProofLabel?.trim()) {
-      requestLogger.warn("POS ticket sale rejected: missing OTHER id proof label");
-      return NextResponse.json({ error: "ID label is required when ID proof type is OTHER" }, { status: 400 });
-    }
   }
 
   const allowedMethods = new Set<SplitPaymentLine["method"]>(["CASH", "CARD", "COMPLIMENTARY"]);

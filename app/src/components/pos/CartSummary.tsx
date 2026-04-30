@@ -51,6 +51,9 @@ export function CartSummary({
   const extra = Number.isFinite(extraAmount) ? extraAmount : 0;
   const extraGst = Number.isFinite(extraGstAmount) ? extraGstAmount : 0;
   const displayTotal = Math.round((totals.totalAmount + extra) * 100) / 100;
+  const amountBeforeDiscount = totals.subtotal + extra;
+  const discountAmount = totals.discountAmount;
+  const discountedSubtotal = Math.max(0, amountBeforeDiscount - discountAmount);
 
   return (
     <div className="flex flex-col h-full">
@@ -123,35 +126,23 @@ export function CartSummary({
       {items.length > 0 && (
         <div className="border-t border-gray-200 pt-3 mt-3 space-y-1.5 text-sm">
           <div className="flex justify-between text-[var(--color-text-muted)]">
-            <span>Subtotal</span>
-            <span>₹{totals.subtotal.toFixed(2)}</span>
+            <span>Amount</span>
+            <span>₹{amountBeforeDiscount.toFixed(2)}</span>
           </div>
-          {totals.gstAmount > 0 && (
-            <div className="flex justify-between text-[var(--color-text-muted)]">
-              <span>GST</span>
-              <span>₹{totals.gstAmount.toFixed(2)}</span>
-            </div>
-          )}
-          {extraGst > 0 && (
-            <div className="flex justify-between text-[var(--color-text-muted)]">
-              <span>{extraLabel} GST</span>
-              <span>₹{extraGst.toFixed(2)}</span>
-            </div>
-          )}
-          {coupon && totals.discountAmount > 0 && (
-            <div className="flex justify-between text-green-600">
-              <span>Discount ({coupon.code})</span>
-              <span>− ₹{totals.discountAmount.toFixed(2)}</span>
-            </div>
-          )}
-          {extra > 0 && (
-            <div className="flex justify-between text-[var(--color-text-muted)]">
-              <span>{extraLabel}</span>
-              <span>₹{extra.toFixed(2)}</span>
-            </div>
-          )}
+          <div className={`flex justify-between ${discountAmount > 0 ? "text-green-600" : "text-[var(--color-text-muted)]"}`}>
+            <span>{coupon && discountAmount > 0 ? `Discount (${coupon.code})` : "Discount"}</span>
+            <span>− ₹{discountAmount.toFixed(2)}</span>
+          </div>
+          <div className="flex justify-between text-[var(--color-text-muted)]">
+            <span>Subtotal</span>
+            <span>₹{discountedSubtotal.toFixed(2)}</span>
+          </div>
+          <div className="flex justify-between text-[var(--color-text-muted)]">
+            <span>GST</span>
+            <span>₹{(totals.gstAmount + extraGst).toFixed(2)}</span>
+          </div>
           <div className="flex justify-between border-t border-gray-200 pt-2 text-base font-bold text-[var(--color-text)]">
-            <span>Total</span>
+            <span>Final Total</span>
             <span>₹{displayTotal.toFixed(2)}</span>
           </div>
 

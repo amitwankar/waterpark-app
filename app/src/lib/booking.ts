@@ -160,12 +160,13 @@ export function roundMoney(value: number): number {
 
 export function calculatePricing(input: PricingInput): PricingBreakdown {
   const subtotal = roundMoney(input.lines.reduce((s, l) => s + l.quantity * l.unitPrice, 0));
-  const gstAmount = roundMoney(subtotal * (input.gstRate / 100));
-  const safeDiscount = Math.max(0, roundMoney(input.discountAmount));
-  const totalAmount = roundMoney(Math.max(0, subtotal + gstAmount - safeDiscount));
+  const safeDiscount = Math.max(0, Math.min(roundMoney(input.discountAmount), subtotal));
+  const discountedSubtotal = roundMoney(Math.max(0, subtotal - safeDiscount));
+  const gstAmount = roundMoney(discountedSubtotal * (input.gstRate / 100));
+  const totalAmount = roundMoney(Math.max(0, discountedSubtotal + gstAmount));
 
   return {
-    subtotal,
+    subtotal: discountedSubtotal,
     gstAmount,
     discountAmount: safeDiscount,
     totalAmount,

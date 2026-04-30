@@ -81,13 +81,15 @@ export async function buildBookingReceipt(bookingId: string): Promise<Receipt | 
     }),
   ]);
 
-  const items: ReceiptLineItem[] = booking.bookingTickets.map((bt) => ({
-    name: bt.ticketType.name,
-    quantity: bt.quantity,
-    unitPrice: Number(bt.unitPrice),
-    gstRate: Number(bt.gstRate),
-    lineTotal: Number(bt.unitPrice) * bt.quantity,
-  }));
+  const items: ReceiptLineItem[] = booking.bookingTickets
+    .map((bt) => ({
+      name: bt.ticketType.name,
+      quantity: bt.quantity,
+      unitPrice: Number(bt.unitPrice),
+      gstRate: Number(bt.gstRate),
+      lineTotal: Number(bt.unitPrice) * bt.quantity,
+    }))
+    .filter((line) => line.quantity > 0 && line.lineTotal > 0);
   for (const order of foodOrders) {
     for (const item of order.orderItems) {
       const baseTotal = Number(item.unitPrice) * item.quantity;
