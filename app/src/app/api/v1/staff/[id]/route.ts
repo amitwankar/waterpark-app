@@ -36,10 +36,11 @@ export async function GET(
   const { id } = await params;
 
   const staff = await db.user.findFirst({
-    where: { id, role: "EMPLOYEE", isDeleted: false },
+    where: { id, role: { in: ["EMPLOYEE", "ADMIN"] }, isDeleted: false },
     select: {
       id: true,
       name: true,
+      role: true,
       mobile: true,
       email: true,
       subRole: true,
@@ -99,8 +100,8 @@ export async function PUT(
   }
 
   const existing = await db.user.findFirst({
-    where: { id, role: "EMPLOYEE", isDeleted: false },
-    select: { id: true },
+    where: { id, role: { in: ["EMPLOYEE", "ADMIN"] }, isDeleted: false },
+    select: { id: true, role: true },
   });
   if (!existing) {
     return NextResponse.json({ error: "Staff member not found" }, { status: 404 });
@@ -111,12 +112,15 @@ export async function PUT(
     data: {
       ...userFields,
       ...(department !== undefined
-        ? { staffProfile: { update: { department: department?.trim() || null } } }
+        ? (existing.role === "EMPLOYEE"
+          ? { staffProfile: { update: { department: department?.trim() || null } } }
+          : {})
         : {}),
     },
     select: {
       id: true,
       name: true,
+      role: true,
       mobile: true,
       email: true,
       subRole: true,
@@ -141,7 +145,7 @@ export async function DELETE(
   }
 
   const target = await db.user.findFirst({
-    where: { id, role: "EMPLOYEE", isDeleted: false },
+    where: { id, role: { in: ["EMPLOYEE", "ADMIN"] }, isDeleted: false },
     select: { id: true },
   });
 

@@ -59,7 +59,7 @@ export async function DELETE(
   const zone = await db.zone.findUnique({
     where: { id },
     include: {
-      rides: { where: { isDeleted: false }, select: { id: true } },
+      rides: { select: { id: true } },
     },
   });
 
@@ -68,7 +68,7 @@ export async function DELETE(
   }
 
   if (zone.rides.length > 0) {
-    return NextResponse.json({ message: "Cannot delete zone with active rides" }, { status: 400 });
+    return NextResponse.json({ message: "Cannot delete zone with linked rides" }, { status: 400 });
   }
 
   await db.zone.delete({ where: { id } });

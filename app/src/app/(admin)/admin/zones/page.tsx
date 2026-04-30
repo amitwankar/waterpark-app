@@ -31,6 +31,7 @@ export default function AdminZonesPage(): JSX.Element {
   const [newName, setNewName] = useState("");
   const [newSortOrder, setNewSortOrder] = useState("0");
   const [editingZone, setEditingZone] = useState<ZoneItem | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [editDescription, setEditDescription] = useState("");
   const [editSortOrder, setEditSortOrder] = useState("0");
@@ -44,7 +45,11 @@ export default function AdminZonesPage(): JSX.Element {
       const payload = (await response.json().catch(() => ({ items: [] }))) as ZonesResponse;
       if (response.ok) {
         setItems(payload.items ?? []);
+      } else {
+        setActionError("Failed to load zones.");
       }
+    } catch {
+      setActionError("Failed to load zones.");
     } finally {
       setLoading(false);
     }
@@ -138,11 +143,20 @@ export default function AdminZonesPage(): JSX.Element {
               variant="outline"
               onClick={() => {
                 startTransition(() => {
-                  void fetch(`/api/v1/zones/${row.id}`, {
-                    method: "PUT",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ isActive: !row.isActive }),
-                  }).then(() => loadZones());
+                  void (async () => {
+                    setActionError(null);
+                    const response = await fetch(`/api/v1/zones/${row.id}`, {
+                      method: "PUT",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ isActive: !row.isActive }),
+                    });
+                    if (!response.ok) {
+                      const body = (await response.json().catch(() => null)) as { message?: string } | null;
+                      setActionError(body?.message ?? "Failed to update zone status.");
+                      return;
+                    }
+                    await loadZones();
+                  })();
                 });
               }}
               loading={isPending}
@@ -154,7 +168,16 @@ export default function AdminZonesPage(): JSX.Element {
               variant="danger"
               onClick={() => {
                 startTransition(() => {
-                  void fetch(`/api/v1/zones/${row.id}`, { method: "DELETE" }).then(() => loadZones());
+                  void (async () => {
+                    setActionError(null);
+                    const response = await fetch(`/api/v1/zones/${row.id}`, { method: "DELETE" });
+                    if (!response.ok) {
+                      const body = (await response.json().catch(() => null)) as { message?: string } | null;
+                      setActionError(body?.message ?? "Failed to delete zone.");
+                      return;
+                    }
+                    await loadZones();
+                  })();
                 });
               }}
               loading={isPending}
@@ -193,15 +216,22 @@ export default function AdminZonesPage(): JSX.Element {
             onClick={() => {
               if (!newName.trim()) return;
               startTransition(() => {
-                void fetch("/api/v1/zones", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ name: newName.trim(), sortOrder: Number(newSortOrder || "0") }),
-                }).then(() => {
+                void (async () => {
+                  setActionError(null);
+                  const response = await fetch("/api/v1/zones", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ name: newName.trim(), sortOrder: Number(newSortOrder || "0") }),
+                  });
+                  if (!response.ok) {
+                    const body = (await response.json().catch(() => null)) as { message?: string } | null;
+                    setActionError(body?.message ?? "Failed to add zone.");
+                    return;
+                  }
                   setNewName("");
                   setNewSortOrder("0");
-                  loadZones();
-                });
+                  await loadZones();
+                })();
               });
             }}
           >
@@ -210,6 +240,7 @@ export default function AdminZonesPage(): JSX.Element {
           </Button>
         </div>
       </div>
+      {actionError ? <p className="text-sm text-red-500">{actionError}</p> : null}
 
       <DataTable
         data={items}

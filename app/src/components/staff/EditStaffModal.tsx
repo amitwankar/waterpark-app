@@ -29,6 +29,7 @@ interface DepartmentRow {
 interface StaffPayload {
   id: string;
   name: string;
+  role: "ADMIN" | "EMPLOYEE";
   email: string | null;
   subRole: string | null;
   isActive: boolean;
@@ -44,6 +45,7 @@ interface Props {
 }
 
 export function EditStaffModal({ staff, onClose, onSaved }: Props) {
+  const isEmployee = staff.role === "EMPLOYEE";
   const [form, setForm] = useState({
     name: staff.name,
     email: staff.email ?? "",
@@ -88,8 +90,8 @@ export function EditStaffModal({ staff, onClose, onSaved }: Props) {
         body: JSON.stringify({
           name: form.name.trim(),
           email: form.email.trim() ? form.email.trim() : null,
-          subRole: form.subRole,
-          department: form.department || null,
+          subRole: isEmployee ? form.subRole : undefined,
+          department: isEmployee ? (form.department || null) : undefined,
           isActive: form.isActive,
         }),
       });
@@ -114,18 +116,20 @@ export function EditStaffModal({ staff, onClose, onSaved }: Props) {
           <Input label="Email" type="email" value={form.email} onChange={set("email")} />
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
-          <Select label="Sub Role" value={form.subRole} onChange={set("subRole")} options={SUB_ROLES} />
-          <Select
-            label="Department"
-            value={form.department}
-            onChange={set("department")}
-            options={[
-              { label: "Select Department", value: "" },
-              ...departments.map((row) => ({ label: row.name, value: row.name })),
-            ]}
-          />
-        </div>
+        {isEmployee ? (
+          <div className="grid grid-cols-2 gap-4">
+            <Select label="Sub Role" value={form.subRole} onChange={set("subRole")} options={SUB_ROLES} />
+            <Select
+              label="Department"
+              value={form.department}
+              onChange={set("department")}
+              options={[
+                { label: "Select Department", value: "" },
+                ...departments.map((row) => ({ label: row.name, value: row.name })),
+              ]}
+            />
+          </div>
+        ) : null}
 
         <Select
           label="Status"

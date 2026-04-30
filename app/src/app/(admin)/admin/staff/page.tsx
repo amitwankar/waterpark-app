@@ -17,6 +17,7 @@ import { EditStaffModal } from "@/components/staff/EditStaffModal";
 interface StaffMember {
   id: string;
   name: string;
+  role: "ADMIN" | "EMPLOYEE";
   mobile: string;
   email: string | null;
   subRole: string | null;
@@ -45,6 +46,7 @@ export default function AdminStaffPage(): JSX.Element {
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [role, setRole] = useState("");
   const [subRole, setSubRole] = useState("");
   const [isActive, setIsActive] = useState("");
   const [showAdd, setShowAdd] = useState(false);
@@ -54,6 +56,7 @@ export default function AdminStaffPage(): JSX.Element {
     setLoading(true);
     try {
       const q = new URLSearchParams();
+      if (role) q.set("role", role);
       if (subRole) q.set("subRole", subRole);
       if (isActive) q.set("isActive", isActive);
       if (search.trim()) q.set("q", search.trim());
@@ -67,7 +70,7 @@ export default function AdminStaffPage(): JSX.Element {
   useEffect(() => {
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [subRole, isActive]);
+  }, [role, subRole, isActive]);
 
   const columns = useMemo<Array<DataTableColumn<StaffMember>>>(
     () => [
@@ -93,7 +96,7 @@ export default function AdminStaffPage(): JSX.Element {
         header: "Role",
         render: (row) => (
           <span className="text-sm">
-            {row.subRole ? (SUB_ROLE_LABELS[row.subRole] ?? row.subRole) : "—"}
+            {row.role === "ADMIN" ? "Admin" : row.subRole ? (SUB_ROLE_LABELS[row.subRole] ?? row.subRole) : "Employee"}
           </span>
         ),
       },
@@ -191,11 +194,20 @@ export default function AdminStaffPage(): JSX.Element {
         ]}
       />
 
-      <div className="grid gap-3 rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4 md:grid-cols-[1fr_200px_180px_auto]">
+      <div className="grid gap-3 rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4 md:grid-cols-[1fr_170px_200px_180px_auto]">
         <Input
           placeholder="Search by name, mobile, or code"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
+        />
+        <Select
+          value={role}
+          onChange={(e) => setRole(e.target.value)}
+          options={[
+            { label: "All Users", value: "" },
+            { label: "Admin", value: "ADMIN" },
+            { label: "Employee", value: "EMPLOYEE" },
+          ]}
         />
         <Select
           value={subRole}

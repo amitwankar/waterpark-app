@@ -33,13 +33,16 @@ export async function GET(req: NextRequest) {
   if (error) return error;
 
   const { searchParams } = new URL(req.url);
+  const role = searchParams.get("role");
   const subRole = searchParams.get("subRole");
   const isActive = searchParams.get("isActive");
   const q = searchParams.get("q");
 
+  const roleFilter = role === "ADMIN" || role === "EMPLOYEE" ? role : null;
+
   const staff = await db.user.findMany({
     where: {
-      role: "EMPLOYEE",
+      role: roleFilter ? roleFilter : { in: ["EMPLOYEE", "ADMIN"] },
       isDeleted: false,
       ...(subRole ? { subRole: subRole as never } : {}),
       ...(isActive !== null ? { isActive: isActive === "true" } : {}),
@@ -57,6 +60,7 @@ export async function GET(req: NextRequest) {
     select: {
       id: true,
       name: true,
+      role: true,
       mobile: true,
       email: true,
       subRole: true,

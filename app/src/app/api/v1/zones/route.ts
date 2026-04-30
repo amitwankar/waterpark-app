@@ -16,8 +16,7 @@ export async function GET(): Promise<NextResponse> {
     orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
     include: {
       rides: {
-        where: { isDeleted: false },
-        select: { id: true, status: true },
+        select: { id: true, status: true, isDeleted: true },
       },
     },
   });
@@ -25,7 +24,7 @@ export async function GET(): Promise<NextResponse> {
   return NextResponse.json({
     items: zones.map((zone: any) => ({
       ...zone,
-      activeRideCount: zone.rides.filter((ride: any) => ride.status === "ACTIVE").length,
+      activeRideCount: zone.rides.filter((ride: any) => !ride.isDeleted && ride.status === "ACTIVE").length,
       rideCount: zone.rides.length,
     })),
   });
