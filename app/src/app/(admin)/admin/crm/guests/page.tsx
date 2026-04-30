@@ -37,8 +37,6 @@ async function getGuestsCached(query: {
   tags: string[];
   followUpDue: { count: number; overdue: number };
 }> {
-  "use cache";
-
   const where: any = {
     ...(query.tier ? { tier: query.tier } : {}),
     ...(query.tag ? { tags: { has: query.tag } } : {}),

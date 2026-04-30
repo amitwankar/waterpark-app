@@ -17,6 +17,7 @@ export interface AssetTableProps {
   items: AssetListItem[];
   loading?: boolean;
   onService: (assetId: string) => void;
+  onDelete: (assetId: string) => void;
 }
 
 function fmtDate(date: string | null): string {
@@ -24,7 +25,7 @@ function fmtDate(date: string | null): string {
   return new Date(date).toLocaleDateString("en-IN");
 }
 
-export function AssetTable({ items, loading, onService }: AssetTableProps): JSX.Element {
+export function AssetTable({ items, loading, onService, onDelete }: AssetTableProps): JSX.Element {
   const columns: Array<DataTableColumn<AssetListItem>> = [
     {
       key: "name",
@@ -75,6 +76,9 @@ export function AssetTable({ items, loading, onService }: AssetTableProps): JSX.
           >
             View
           </a>
+          <Button size="sm" variant="ghost" onClick={() => onDelete(row.id)}>
+            Delete
+          </Button>
         </div>
       ),
     },

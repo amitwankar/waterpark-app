@@ -94,8 +94,14 @@ export function RideCard({ ride, adminMode = false, onEdit, onChanged }: RideCar
                 if (!confirm(`Delete "${ride.name}"?`)) return;
                 setIsDeleting(true);
                 try {
-                  await fetch(`/api/v1/rides/${ride.id}`, { method: "DELETE" });
+                  const response = await fetch(`/api/v1/rides/${ride.id}`, { method: "DELETE" });
+                  if (!response.ok) {
+                    const payload = await response.json().catch(() => ({} as { message?: string }));
+                    throw new Error(payload.message || "Failed to delete ride");
+                  }
                   onChanged?.();
+                } catch (error) {
+                  alert(error instanceof Error ? error.message : "Failed to delete ride");
                 } finally {
                   setIsDeleting(false);
                 }

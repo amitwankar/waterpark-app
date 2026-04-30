@@ -139,25 +139,9 @@ export async function DELETE(
     return NextResponse.json({ message: "Asset not found" }, { status: 404 });
   }
 
-  const openWorkOrders = await db.workOrder.count({
-    where: {
-      assetId: id,
-      isDeleted: false,
-      status: { in: ["OPEN", "IN_PROGRESS"] },
-    },
-  });
-
-  if (openWorkOrders > 0) {
-    return NextResponse.json({ message: "Cannot delete asset with open work orders" }, { status: 400 });
-  }
-
-  await db.maintenanceAsset.update({
-    where: { id },
-    data: {
-      isDeleted: true,
-      deletedAt: new Date(),
-      isActive: false,
-    },
+  await db.$transaction(async (tx) => {
+    await tx.workOrder.deleteMany({ where: { assetId: id } });
+    await tx.maintenanceAsset.delete({ where: { id } });
   });
 
   return NextResponse.json({ ok: true });

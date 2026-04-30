@@ -123,14 +123,8 @@ export async function DELETE(
   }
 
   await db.$transaction(async (tx) => {
-    // Keep locker soft-deleted in business data.
-    await tx.locker.update({
-      where: { id },
-      data: {
-        isActive: false,
-        status: "MAINTENANCE",
-      },
-    });
+    await tx.lockerAssignment.deleteMany({ where: { lockerId: id } });
+    await tx.salesPackageItem.updateMany({ where: { lockerId: id }, data: { lockerId: null } });
 
     // Remove linked maintenance entities if they exist for this locker.
     const lockerAssets = await tx.maintenanceAsset.findMany({
@@ -144,6 +138,8 @@ export async function DELETE(
       await tx.workOrder.deleteMany({ where: { assetId: { in: lockerAssetIds } } });
       await tx.maintenanceAsset.deleteMany({ where: { id: { in: lockerAssetIds } } });
     }
+
+    await tx.locker.delete({ where: { id } });
   });
   return NextResponse.json({ ok: true });
 }

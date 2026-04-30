@@ -137,6 +137,28 @@ export default function AdminMaintenanceAssetsPage(): JSX.Element {
                   variant: "error",
                 });
               });
+            });
+        }}
+        onDelete={(assetId) => {
+          const ok = window.confirm("Delete this maintenance asset permanently?");
+          if (!ok) return;
+          startTransition(() => {
+            void fetch(`/api/v1/maintenance/assets/${assetId}`, { method: "DELETE" })
+              .then(async (response) => {
+                if (!response.ok) {
+                  const payload = (await response.json().catch(() => null)) as { message?: string } | null;
+                  throw new Error(payload?.message ?? "Delete failed");
+                }
+                pushToast({ title: "Asset deleted", variant: "success" });
+                loadAssets();
+              })
+              .catch((error: unknown) => {
+                pushToast({
+                  title: "Delete failed",
+                  message: error instanceof Error ? error.message : "Could not delete asset",
+                  variant: "error",
+                });
+              });
           });
         }}
       />

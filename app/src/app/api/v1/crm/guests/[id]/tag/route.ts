@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { revalidatePath } from "next/cache";
 
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -57,6 +58,8 @@ export async function POST(
     data: { tags: [...nextTags, ...noteTags] },
     select: { id: true, tags: true },
   });
+  revalidatePath("/admin/crm/guests");
+  revalidatePath(`/admin/crm/guests/${id}`);
 
   return NextResponse.json({ id: updated.id, tags: updated.tags.filter((tag: string) => !tag.startsWith("__note:")) });
 }

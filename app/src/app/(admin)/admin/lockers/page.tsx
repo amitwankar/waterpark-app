@@ -139,11 +139,17 @@ export default function AdminLockersPage(): JSX.Element {
   }
 
   async function updateStatus(lockerId: string, status: Locker["status"]) {
-    await fetch(`/api/v1/lockers/${lockerId}`, {
+    const res = await fetch(`/api/v1/lockers/${lockerId}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status }),
     });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      setFormError(body?.error ?? "Failed to update locker status.");
+      return;
+    }
+    setFormError(null);
     await loadLockers();
   }
 
@@ -187,8 +193,14 @@ export default function AdminLockersPage(): JSX.Element {
   }
 
   async function removeLocker(lockerId: string): Promise<void> {
-    if (!confirm("Delete this locker from active inventory?")) return;
-    await fetch(`/api/v1/lockers/${lockerId}`, { method: "DELETE" });
+    if (!confirm("Delete this locker permanently from database?")) return;
+    const res = await fetch(`/api/v1/lockers/${lockerId}`, { method: "DELETE" });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as { error?: string } | null;
+      setFormError(body?.error ?? "Failed to delete locker.");
+      return;
+    }
+    setFormError(null);
     await loadLockers();
   }
 

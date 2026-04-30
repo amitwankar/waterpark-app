@@ -134,6 +134,11 @@ export async function DELETE(
   }
 
   await db.$transaction(async (tx) => {
+    // Remove dependent records so ride can be hard-deleted.
+    await tx.rideAccessLog.deleteMany({ where: { rideId: id } });
+    await tx.ticketType.updateMany({ where: { rideId: id }, data: { rideId: null } });
+    await tx.salesPackageItem.updateMany({ where: { rideId: id }, data: { rideId: null } });
+
     // Remove all maintenance tasks linked to this ride.
     await tx.workOrder.deleteMany({ where: { rideId: id } });
 
@@ -150,15 +155,7 @@ export async function DELETE(
       await tx.maintenanceAsset.deleteMany({ where: { id: { in: rideAssetIds } } });
     }
 
-    await tx.ride.update({
-      where: { id },
-      data: {
-        isDeleted: true,
-        deletedAt: new Date(),
-        operatorId: null,
-        status: "CLOSED" as any,
-      },
-    });
+    await tx.ride.delete({ where: { id } });
   });
 
   return NextResponse.json({ ok: true });

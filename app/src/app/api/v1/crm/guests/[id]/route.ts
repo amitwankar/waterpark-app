@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { revalidatePath } from "next/cache";
 
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -174,6 +175,9 @@ export async function PUT(
     },
   });
 
+  revalidatePath("/admin/crm/guests");
+  revalidatePath(`/admin/crm/guests/${id}`);
+
   return NextResponse.json({
     guest: {
       ...updated,
@@ -201,5 +205,7 @@ export async function DELETE(
   }
 
   await db.guestProfile.delete({ where: { id } });
+  revalidatePath("/admin/crm/guests");
+  revalidatePath(`/admin/crm/guests/${id}`);
   return NextResponse.json({ ok: true });
 }
