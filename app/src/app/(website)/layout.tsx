@@ -1,7 +1,5 @@
 import type { ReactNode } from "react";
 import { Suspense } from "react";
-import { headers } from "next/headers";
-import { redirect } from "next/navigation";
 
 import { WebsiteFooter } from "@/components/website/WebsiteFooter";
 import { WebsiteHeader } from "@/components/website/WebsiteHeader";
@@ -17,13 +15,6 @@ async function WebsiteFooterSlot(): Promise<JSX.Element> {
 }
 
 export default async function WebsiteLayout({ children }: WebsiteLayoutProps): Promise<JSX.Element> {
-  const settings = await getCachedSettings();
-  const reqHeaders = await headers();
-  const allowWhenWebsiteDisabled = reqHeaders.get("x-allow-website-disabled") === "1";
-  if (settings.websiteEnabled === false && !allowWhenWebsiteDisabled) {
-    redirect("/login");
-  }
-
   return (
     <div className="min-h-screen bg-[var(--color-surface)] text-[var(--color-text)]">
       <WebsiteHeader />
