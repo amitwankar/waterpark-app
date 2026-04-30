@@ -23,6 +23,8 @@ export function DeviceQrScanner({ onDetected, className }: DeviceQrScannerProps)
   const streamRef = useRef<MediaStream | null>(null);
   const rafRef = useRef<number | null>(null);
   const detectorRef = useRef<{ detect: (source: ImageBitmapSource) => Promise<DetectResult[]> } | null>(null);
+  const zxingReaderRef = useRef<{ reset?: () => void } | null>(null);
+  const zxingControlsRef = useRef<{ stop?: () => void } | null>(null);
   const lastDetectedAtRef = useRef<number>(0);
   const onDetectedRef = useRef(onDetected);
 
@@ -53,6 +55,14 @@ export function DeviceQrScanner({ onDetected, className }: DeviceQrScannerProps)
     if (videoRef.current) {
       videoRef.current.srcObject = null;
     }
+    if (zxingControlsRef.current?.stop) {
+      zxingControlsRef.current.stop();
+    }
+    zxingControlsRef.current = null;
+    if (zxingReaderRef.current?.reset) {
+      zxingReaderRef.current.reset();
+    }
+    zxingReaderRef.current = null;
   }, []);
 
   const runDetectLoop = useCallback(() => {
@@ -122,8 +132,41 @@ export function DeviceQrScanner({ onDetected, className }: DeviceQrScannerProps)
       }
 
       if (!canUseBarcodeDetector || !window.BarcodeDetector) {
-        setSupported(false);
-        setError("Live QR camera scan is not supported in this browser. Use Chrome/Edge latest.");
+        const { BrowserQRCodeReader } = await import("@zxing/browser");
+        const reader = new BrowserQRCodeReader();
+        zxingReaderRef.current = reader as { reset?: () => void };
+        setSupported(true);
+
+        const video = videoRef.current;
+        if (!video) {
+          setError("Camera view is not available.");
+          setEnabled(false);
+          return;
+        }
+
+        const controls = await reader.decodeFromConstraints(
+          {
+            video: {
+              facingMode: { ideal: "environment" },
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+            },
+          },
+          video,
+          (result) => {
+            const value = result?.getText?.()?.trim?.();
+            if (!value) return;
+            const now = Date.now();
+            if (now - lastDetectedAtRef.current > 1800) {
+              lastDetectedAtRef.current = now;
+              onDetectedRef.current(value);
+            }
+          },
+        );
+
+        zxingControlsRef.current = controls as { stop?: () => void };
+        setEnabled(true);
+        setPermissionState("granted");
         return;
       }
 

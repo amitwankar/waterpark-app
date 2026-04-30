@@ -7,7 +7,7 @@ function withSecurityHeaders(response: NextResponse, requestId: string): NextRes
   response.headers.set("x-frame-options", "SAMEORIGIN");
   response.headers.set("x-content-type-options", "nosniff");
   response.headers.set("referrer-policy", "strict-origin-when-cross-origin");
-  response.headers.set("permissions-policy", "camera=(), microphone=(), geolocation=()");
+  response.headers.set("permissions-policy", "camera=(self), microphone=(), geolocation=()");
   return response;
 }
 

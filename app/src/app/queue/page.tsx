@@ -236,8 +236,12 @@ export default function PublicQueuePage(): JSX.Element {
   const verificationMode = options?.queue.verificationMode ?? "DISABLED";
   const emailRequired = modeNeedsEmail(verificationMode);
   const smsRequired = modeNeedsSms(verificationMode);
+  const mobileValid = /^[6-9]\d{9}$/.test(guestMobile.trim());
+  const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(guestEmail.trim());
   const canSubmitQueue =
     guestName.trim().length > 0 &&
+    mobileValid &&
+    emailValid &&
     totals.total > 0 &&
     (!emailRequired || emailVerified) &&
     (!smsRequired || smsVerified);
@@ -245,14 +249,14 @@ export default function PublicQueuePage(): JSX.Element {
   async function sendOtp(channel: "email" | "sms"): Promise<void> {
     setError(null);
     if (channel === "email") {
-      if (!guestEmail.trim()) {
-        setError("Enter email first");
+      if (!emailValid) {
+        setError("Enter a valid email first");
         return;
       }
       setSendingEmailOtp(true);
     } else {
-      if (!guestMobile.trim()) {
-        setError("Enter mobile number first");
+      if (!mobileValid) {
+        setError("Enter a valid 10-digit mobile number first");
         return;
       }
       setSendingSmsOtp(true);
@@ -479,7 +483,7 @@ export default function PublicQueuePage(): JSX.Element {
             <CardBody className="grid gap-4 md:grid-cols-2">
               <Input label="Guest name *" value={guestName} onChange={(e) => setGuestName(e.target.value)} />
               <Input
-                label={smsRequired ? "Mobile (OTP required) *" : "Mobile (optional)"}
+                label={smsRequired ? "Mobile (OTP required) *" : "Mobile *"}
                 value={guestMobile}
                 onChange={(e) => {
                   setGuestMobile(e.target.value);
@@ -489,7 +493,7 @@ export default function PublicQueuePage(): JSX.Element {
                 placeholder="10-digit mobile"
               />
               <Input
-                label={emailRequired ? "Email (OTP required) *" : "Email (optional)"}
+                label={emailRequired ? "Email (OTP required) *" : "Email *"}
                 value={guestEmail}
                 onChange={(e) => {
                   if (emailVerified) return;

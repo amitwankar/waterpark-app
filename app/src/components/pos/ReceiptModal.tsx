@@ -77,7 +77,10 @@ export function ReceiptModal({ receiptId: receiptRef, type = "booking", onClose 
   function handlePrint() {
     if (!printRef.current) return;
     const printWindow = window.open("", "_blank", "width=400,height=700");
-    if (!printWindow) return;
+    if (!printWindow) {
+      alert("Please allow pop-ups in your browser to print the receipt.");
+      return;
+    }
     printWindow.document.write(`
       <html>
         <head>
@@ -96,8 +99,8 @@ export function ReceiptModal({ receiptId: receiptRef, type = "booking", onClose 
     `);
     printWindow.document.close();
     printWindow.focus();
+    printWindow.onafterprint = () => printWindow.close();
     printWindow.print();
-    printWindow.close();
   }
 
   async function handleWhatsApp() {

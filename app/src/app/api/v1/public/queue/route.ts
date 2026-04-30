@@ -56,8 +56,8 @@ const rideLineSchema = z.object({
 const schema = z
   .object({
     guestName: z.string().trim().min(2).max(120),
-    guestMobile: z.string().trim().regex(/^[6-9]\d{9}$/).optional().or(z.literal("")),
-    guestEmail: z.string().trim().email().max(255).optional().or(z.literal("")),
+    guestMobile: z.string().trim().regex(/^[6-9]\d{9}$/),
+    guestEmail: z.string().trim().email().max(255),
     emailOtpProofToken: z.string().trim().min(1).optional(),
     smsOtpProofToken: z.string().trim().min(1).optional(),
     participants: z.array(participantSchema).max(200).optional(),

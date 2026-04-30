@@ -476,7 +476,7 @@ export async function POST(req: NextRequest) {
       .filter((t) => t.ticketTypeId && t.quantity > 0 && (t.unitPrice > 0 || t.gstRate > 0));
   }
 
-  if (ticketSnapshot) {
+  if (ticketSnapshot && sourceBookingId) {
     const requested = new Map<string, number>();
     for (const line of items) {
       requested.set(line.ticketTypeId, (requested.get(line.ticketTypeId) ?? 0) + line.quantity);
@@ -498,7 +498,7 @@ export async function POST(req: NextRequest) {
         "POS ticket sale rejected: snapshot ticket mismatch",
       );
       return NextResponse.json(
-        { error: "Selected tickets do not match the imported booking/queue snapshot" },
+        { error: "Selected tickets do not match the imported booking snapshot" },
         { status: 400 },
       );
     }
