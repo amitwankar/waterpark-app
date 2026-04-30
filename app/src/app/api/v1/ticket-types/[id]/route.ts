@@ -35,7 +35,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
     },
   });
   if (!type) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  return NextResponse.json({ ...type, price: Number(type.price), gstRate: Number(type.gstRate) });
+  return NextResponse.json({ ...type, category: type.rideId ? "Ride" : "General", price: Number(type.price), gstRate: Number(type.gstRate) });
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -44,16 +44,17 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const { id } = await params;
   try {
     const body = patchSchema.parse(await req.json());
+    const { category: _category, ...safeBody } = body as typeof body & { category?: string };
     const type = await db.ticketType.update({
       where: { id },
-      data: body,
+      data: safeBody,
       include: {
         ride: {
           select: { id: true, name: true },
         },
       },
     });
-    return NextResponse.json({ ...type, price: Number(type.price), gstRate: Number(type.gstRate) });
+    return NextResponse.json({ ...type, category: type.rideId ? "Ride" : "General", price: Number(type.price), gstRate: Number(type.gstRate) });
   } catch (e) {
     if (e instanceof z.ZodError) return NextResponse.json({ error: e.errors }, { status: 422 });
     return NextResponse.json({ error: "Update failed" }, { status: 500 });

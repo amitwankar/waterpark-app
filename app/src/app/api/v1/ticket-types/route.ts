@@ -39,6 +39,7 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json(types.map((t) => ({
     ...t,
+    category: t.rideId ? "Ride" : "General",
     price: Number(t.price),
     gstRate: Number(t.gstRate),
   })));
@@ -55,10 +56,17 @@ export async function POST(req: NextRequest) {
     }
     const type = await db.ticketType.create({
       data: {
-        ...body,
+        name: body.name,
+        rideId: body.rideId ?? null,
         description: body.description ?? null,
         price: body.price,
         gstRate: body.gstRate,
+        minAge: body.minAge ?? null,
+        maxAge: body.maxAge ?? null,
+        maxPerBooking: body.maxPerBooking ?? null,
+        validDays: body.validDays,
+        sortOrder: body.sortOrder,
+        imageUrl: body.imageUrl ?? null,
       },
       include: {
         ride: {
@@ -66,7 +74,7 @@ export async function POST(req: NextRequest) {
         },
       },
     });
-    return NextResponse.json({ ...type, price: Number(type.price), gstRate: Number(type.gstRate) }, { status: 201 });
+    return NextResponse.json({ ...type, category: type.rideId ? "Ride" : "General", price: Number(type.price), gstRate: Number(type.gstRate) }, { status: 201 });
   } catch (e) {
     if (e instanceof z.ZodError) return NextResponse.json({ error: e.errors }, { status: 422 });
     return NextResponse.json({ error: "Failed to create ticket type" }, { status: 500 });
