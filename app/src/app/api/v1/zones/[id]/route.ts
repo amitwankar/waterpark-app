@@ -59,7 +59,7 @@ export async function DELETE(
   const zone = await db.zone.findUnique({
     where: { id },
     include: {
-      rides: { select: { id: true } },
+      rides: { select: { id: true, name: true } },
     },
   });
 
@@ -67,10 +67,33 @@ export async function DELETE(
     return NextResponse.json({ message: "Zone not found" }, { status: 404 });
   }
 
-  if (zone.rides.length > 0) {
-    return NextResponse.json({ message: "Cannot delete zone with linked rides" }, { status: 400 });
-  }
+  await db.$transaction(async (tx) => {
+    const rideIds = zone.rides.map((ride) => ride.id);
+    if (rideIds.length > 0) {
+      await tx.rideAccessLog.deleteMany({ where: { rideId: { in: rideIds } } });
+      await tx.ticketType.updateMany({ where: { rideId: { in: rideIds } }, data: { rideId: null } });
+      await tx.salesPackageItem.updateMany({ where: { rideId: { in: rideIds } }, data: { rideId: null } });
+      await tx.workOrder.deleteMany({ where: { rideId: { in: rideIds } } });
 
-  await db.zone.delete({ where: { id } });
+      const rideAssets = await tx.maintenanceAsset.findMany({
+        where: {
+          OR: [
+            { serialNumber: { in: rideIds.map((rideId) => `RIDE-${rideId}`) } },
+            { name: { in: zone.rides.map((ride) => `Ride Asset - ${ride.name}`) } },
+          ],
+        },
+        select: { id: true },
+      });
+      const rideAssetIds = rideAssets.map((asset) => asset.id);
+      if (rideAssetIds.length > 0) {
+        await tx.workOrder.deleteMany({ where: { assetId: { in: rideAssetIds } } });
+        await tx.maintenanceAsset.deleteMany({ where: { id: { in: rideAssetIds } } });
+      }
+
+      await tx.ride.deleteMany({ where: { id: { in: rideIds } } });
+    }
+
+    await tx.zone.delete({ where: { id } });
+  });
   return NextResponse.json({ ok: true });
 }

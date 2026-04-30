@@ -181,7 +181,6 @@ export default function AdminZonesPage(): JSX.Element {
                 });
               }}
               loading={isPending}
-              disabled={row.rideCount > 0}
             >
               Delete
             </Button>
