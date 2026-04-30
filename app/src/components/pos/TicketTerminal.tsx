@@ -498,20 +498,48 @@ export function TicketTerminal({
   }, [sourcePickerOpen, sourcePickerQuery]);
 
   const mobileValid = /^[6-9]\d{9}$/.test(guestMobile.trim());
+  const packageTicketGuestCount = useMemo(
+    () =>
+      packageLines.reduce(
+        (sum, line) =>
+          sum +
+          line.items.reduce(
+            (inner, item) =>
+              inner + (item.itemType === "TICKET" ? Math.max(0, item.quantity) * Math.max(1, line.quantity) : 0),
+            0,
+          ),
+        0,
+      ),
+    [packageLines],
+  );
   const totalGuests = useMemo(
-    () => cart.items.reduce((sum, item) => sum + item.quantity, 0),
-    [cart.items],
+    () => cart.items.reduce((sum, item) => sum + item.quantity, 0) + packageTicketGuestCount,
+    [cart.items, packageTicketGuestCount],
   );
   const participantSlots = useMemo(
-    () =>
-      cart.items.flatMap((item) =>
+    () => {
+      const directTicketSlots = cart.items.flatMap((item) =>
         Array.from({ length: item.quantity }).map((_, index) => ({
           key: `${item.id}-${index}`,
           ticketTypeId: item.id,
           ticketName: item.name,
         })),
-      ),
-    [cart.items],
+      );
+      const packageTicketSlots = packageLines.flatMap((line, lineIndex) =>
+        line.items.flatMap((item, itemIndex) => {
+          if (item.itemType !== "TICKET") return [];
+          const count = Math.max(0, item.quantity) * Math.max(1, line.quantity);
+          const label = item.label?.trim() || `${line.name} Ticket`;
+          return Array.from({ length: count }).map((_, slotIndex) => ({
+            key: `pkg-${line.packageId}-${lineIndex}-${itemIndex}-${slotIndex}`,
+            ticketTypeId: "",
+            ticketName: label,
+          }));
+        }),
+      );
+      return [...directTicketSlots, ...packageTicketSlots];
+    },
+    [cart.items, packageLines],
   );
 
   useEffect(() => {
@@ -539,10 +567,18 @@ export function TicketTerminal({
   );
   const foodTotal = Math.round(foodLines.reduce((sum, line) => sum + line.amount, 0) * 100) / 100;
   const packageTotal = Math.round(packageLines.reduce((sum, line) => sum + line.amount, 0) * 100) / 100;
+  const packageBaseSubtotal = Math.round(packageLines.reduce((sum, line) => sum + line.baseAmount, 0) * 100) / 100;
   const packageGstAmount = Math.round(packageLines.reduce((sum, line) => sum + (line.baseAmount * line.gstRate) / 100, 0) * 100) / 100;
   const lockerTotal = Math.round(lockerLines.reduce((sum, line) => sum + line.amount, 0) * 100) / 100;
   const costumeTotal = Math.round(costumeLines.reduce((sum, line) => sum + line.amount, 0) * 100) / 100;
   const rideTotal = Math.round(rideLines.reduce((sum, line) => sum + line.amount, 0) * 100) / 100;
+  const addOnBaseSubtotal = Math.round(
+    (foodLines.reduce((sum, line) => sum + line.baseAmount, 0) +
+      lockerLines.reduce((sum, line) => sum + line.baseAmount, 0) +
+      costumeLines.reduce((sum, line) => sum + line.baseAmount, 0) +
+      rideLines.reduce((sum, line) => sum + line.baseAmount, 0)) *
+      100,
+  ) / 100;
   const addOnGstAmount = Math.round(
     (foodLines.reduce((sum, line) => sum + (line.baseAmount * line.gstRate) / 100, 0) +
       lockerLines.reduce((sum, line) => sum + (line.baseAmount * line.gstRate) / 100, 0) +
@@ -551,9 +587,15 @@ export function TicketTerminal({
       100,
   ) / 100;
   const addOnTotal = Math.round((foodTotal + lockerTotal + costumeTotal + rideTotal) * 100) / 100;
-  const grossGrandTotal = Math.round((cart.totals.totalAmount + packageTotal + addOnTotal) * 100) / 100;
-  const appliedManualDiscount = Math.min(Math.max(0, manualDiscountAmount), grossGrandTotal);
-  const grandTotal = Math.round((grossGrandTotal - appliedManualDiscount) * 100) / 100;
+  const discountedTicketSubtotal = Math.max(0, cart.totals.subtotal - cart.totals.discountAmount);
+  const grossSubtotal = Math.round((discountedTicketSubtotal + packageBaseSubtotal + addOnBaseSubtotal) * 100) / 100;
+  const grossGst = Math.round((cart.totals.gstAmount + packageGstAmount + addOnGstAmount) * 100) / 100;
+  const grossGrandTotal = Math.round((grossSubtotal + grossGst) * 100) / 100;
+  const appliedManualDiscount = Math.min(Math.max(0, manualDiscountAmount), grossSubtotal);
+  const discountedSubtotal = Math.max(0, grossSubtotal - appliedManualDiscount);
+  const effectiveGstRate = grossSubtotal > 0 ? grossGst / grossSubtotal : 0;
+  const discountedGst = discountedSubtotal * effectiveGstRate;
+  const grandTotal = Math.round((discountedSubtotal + discountedGst) * 100) / 100;
   const payableGrandTotal = Math.round(
     (linkedBookingId ? Math.max(0, grandTotal - linkedSourcePaidAmount) : grandTotal) * 100,
   ) / 100;
@@ -583,7 +625,7 @@ export function TicketTerminal({
           idProofNumber: idProofNumber.trim() || undefined,
           idProofLabel: idProofType === "OTHER" ? idProofLabel.trim() || undefined : undefined,
           participants: participants.map((row) => ({
-            ticketTypeId: row.ticketTypeId,
+            ticketTypeId: row.ticketTypeId || undefined,
             name: row.name.trim() || undefined,
             gender: row.gender || undefined,
             age: row.age.trim().length > 0 ? Number(row.age) : undefined,

@@ -65,7 +65,7 @@ const participantSchema = z.object({
   name: z.string().trim().max(100).optional(),
   gender: z.enum(["MALE", "FEMALE", "OTHER"]).optional(),
   age: z.number().int().min(1).max(120).optional(),
-  ticketTypeId: z.string().min(1),
+  ticketTypeId: z.string().min(1).optional(),
   isLeadGuest: z.boolean().optional(),
 });
 
@@ -805,9 +805,14 @@ export async function POST(req: NextRequest) {
   const rideTotal = rideSubtotal + rideGst;
   const addOnSubtotal = foodSubtotal + lockerSubtotal + costumeSubtotal + rideSubtotal;
   const addOnGst = foodGst + lockerGst + costumeGst + rideGst;
-  const grossGrandTotal = Math.round((totals.totalAmount + foodTotal + lockerTotal + costumeTotal + rideTotal) * 100) / 100;
-  const appliedManualDiscount = Math.min(Math.max(0, Number(manualDiscountAmount || 0)), grossGrandTotal);
-  const grandTotal = Math.round((grossGrandTotal - appliedManualDiscount) * 100) / 100;
+  const grossSubtotal = totals.subtotal + addOnSubtotal;
+  const grossGst = totals.gstAmount + addOnGst;
+  const grossGrandTotal = Math.round((grossSubtotal + grossGst) * 100) / 100;
+  const appliedManualDiscount = Math.min(Math.max(0, Number(manualDiscountAmount || 0)), grossSubtotal);
+  const discountedSubtotal = Math.max(0, grossSubtotal - appliedManualDiscount);
+  const effectiveGstRate = grossSubtotal > 0 ? grossGst / grossSubtotal : 0;
+  const discountedGst = discountedSubtotal * effectiveGstRate;
+  const grandTotal = Math.round((discountedSubtotal + discountedGst) * 100) / 100;
   const carriedForwardPaid = sourceBookingId ? Math.max(0, Math.min(sourceBookingPaidAmount, grandTotal)) : 0;
   const chargeableGrandTotal = Math.round((grandTotal - carriedForwardPaid) * 100) / 100;
 
@@ -889,7 +894,7 @@ export async function POST(req: NextRequest) {
     Array.from({ length: line.quantity }).map(() => line.ticketTypeId),
   );
   const participantByTicket = new Set(ticketEntitlementLines.map((line) => line.ticketTypeId));
-  if (participants.some((participant) => !participantByTicket.has(participant.ticketTypeId))) {
+  if (participants.some((participant) => participant.ticketTypeId && !participantByTicket.has(participant.ticketTypeId))) {
     requestLogger.warn("POS ticket sale rejected: participant with invalid ticket type");
     return NextResponse.json({ error: "Participant contains invalid ticket type" }, { status: 400 });
   }
@@ -939,8 +944,8 @@ export async function POST(req: NextRequest) {
         idProofType: idProofType ?? null,
         idProofNumber: idProofNumber ? encrypt(idProofNumber.replace(/\s+/g, "").toUpperCase()) : null,
         idProofLabel: idProofType === "OTHER" ? idProofLabel?.trim() || null : null,
-        subtotal: totals.subtotal + addOnSubtotal,
-        gstAmount: totals.gstAmount + addOnGst,
+        subtotal: discountedSubtotal,
+        gstAmount: discountedGst,
         discountAmount: totals.discountAmount + appliedManualDiscount + carriedForwardPaid,
         totalAmount: chargeableGrandTotal,
         status: "CONFIRMED",
@@ -1322,6 +1327,8 @@ export async function POST(req: NextRequest) {
         gst: Math.round(addOnGst * 100) / 100,
       },
       manualDiscountAmount: Math.round(appliedManualDiscount * 100) / 100,
+      subtotalAfterDiscount: Math.round(discountedSubtotal * 100) / 100,
+      gstAfterDiscount: Math.round(discountedGst * 100) / 100,
       grandTotal: chargeableGrandTotal,
       sourceBookingPaidAmount: Math.round(carriedForwardPaid * 100) / 100,
       originalGrandTotal: grandTotal,

@@ -94,12 +94,16 @@ export function computeCartTotals(
     gstAmount += lineGst;
   }
 
-  const totalAmount = Math.max(0, subtotal + gstAmount - discountAmount);
+  const safeDiscount = Math.max(0, Math.min(discountAmount, subtotal));
+  const discountedSubtotal = Math.max(0, subtotal - safeDiscount);
+  const effectiveGstRate = subtotal > 0 ? gstAmount / subtotal : 0;
+  const discountedGstAmount = discountedSubtotal * effectiveGstRate;
+  const totalAmount = Math.max(0, discountedSubtotal + discountedGstAmount);
 
   return {
     subtotal: Math.round(subtotal * 100) / 100,
-    gstAmount: Math.round(gstAmount * 100) / 100,
-    discountAmount: Math.round(discountAmount * 100) / 100,
+    gstAmount: Math.round(discountedGstAmount * 100) / 100,
+    discountAmount: Math.round(safeDiscount * 100) / 100,
     totalAmount: Math.round(totalAmount * 100) / 100,
   };
 }

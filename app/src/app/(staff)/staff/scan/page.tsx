@@ -61,6 +61,11 @@ interface LookupResult {
     gateUsed: boolean;
     canEnterGate: boolean;
   };
+  gateUsage: {
+    allowedCount: number;
+    enteredCount: number;
+    remainingCount: number;
+  };
   rideUsage: Record<string, { used: number; allowed: number }>;
 }
 
@@ -118,6 +123,7 @@ export default function ScanPage(): JSX.Element {
   const [ridesLoading, setRidesLoading] = useState(false);
   const [selectedRideId, setSelectedRideId] = useState("");
   const [guestCount, setGuestCount] = useState(1);
+  const [gateEntryCount, setGateEntryCount] = useState(1);
 
   const [scanInput, setScanInput] = useState("");
   const [looking, setLooking] = useState(false);
@@ -199,20 +205,53 @@ export default function ScanPage(): JSX.Element {
     setConfirming(true);
 
     try {
-      if (mode === "gate" || mode === "info") {
+      if (mode === "info") {
+        setActionState({ phase: "confirmed", type: "success", message: "Info shown", subText: "No booking status was changed" });
+      } else if (mode === "gate") {
+        const remaining = lookupResult.gateUsage?.remainingCount ?? 0;
+        if (mode === "gate" && gateEntryCount > remaining) {
+          setActionState({
+            phase: "confirmed",
+            type: "error",
+            message: `Cannot mark ${gateEntryCount} entries`,
+            subText: `Only ${remaining} remaining for this ticket`,
+          });
+          setConfirming(false);
+          return;
+        }
         const res = await fetch("/api/v1/scan/gate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ bookingNumber: booking.bookingNumber }),
+          body: JSON.stringify({ bookingNumber: booking.bookingNumber, entryCount: gateEntryCount }),
         });
-        const data = (await res.json()) as { success?: boolean; message?: string; reEntry?: boolean };
+        const data = (await res.json()) as {
+          success?: boolean;
+          message?: string;
+          reEntry?: boolean;
+          gateUsage?: { allowedCount: number; enteredCount: number; remainingCount: number; justEntered?: number };
+        };
 
         if (!res.ok) {
           setActionState({ phase: "confirmed", type: "error", message: data.message ?? "Entry denied" });
         } else if (data.reEntry) {
           setActionState({ phase: "confirmed", type: "warn", message: "Re-entry scan", subText: data.message });
         } else {
+          const usage = data.gateUsage;
           setActionState({ phase: "confirmed", type: "success", message: "Entry granted ✓", subText: `${booking.guestName} — ${booking.bookingNumber}` });
+          if (usage) {
+            setLookupResult((prev) => {
+              if (!prev) return prev;
+              return {
+                ...prev,
+                validity: { ...prev.validity, gateUsed: usage.enteredCount > 0, canEnterGate: usage.remainingCount > 0 && prev.validity.isValidDate && prev.validity.isValidStatus },
+                gateUsage: {
+                  allowedCount: usage.allowedCount,
+                  enteredCount: usage.enteredCount,
+                  remainingCount: usage.remainingCount,
+                },
+              };
+            });
+          }
         }
       } else if (mode === "ride") {
         if (!selectedRideId) {
@@ -279,7 +318,10 @@ export default function ScanPage(): JSX.Element {
   const canConfirm = (() => {
     if (!lookupResult) return false;
     const { validity } = lookupResult;
-    if (mode === "gate") return validity.canEnterGate;
+    if (mode === "gate") {
+      const remaining = lookupResult.gateUsage?.remainingCount ?? 0;
+      return validity.canEnterGate && gateEntryCount >= 1 && gateEntryCount <= remaining;
+    }
     if (mode === "ride") return selectedRideId.length > 0 && validity.isValidStatus;
     return true;
   })();
@@ -289,6 +331,7 @@ export default function ScanPage(): JSX.Element {
     const { validity } = lookupResult;
     if (!validity.isValidDate) return "Ticket is NOT for today's date";
     if (!validity.isValidStatus) return `Booking status is ${lookupResult.booking.status} — entry not allowed`;
+    if (mode === "gate" && lookupResult.gateUsage?.remainingCount === 0) return "All persons already entered for this booking";
     if (mode === "gate" && validity.gateUsed) return "Already checked in — re-entry scan";
     return null;
   })();
@@ -373,6 +416,20 @@ export default function ScanPage(): JSX.Element {
                   </div>
                 </>
               )}
+            </div>
+          )}
+          {mode === "gate" && (
+            <div className="flex items-center gap-2">
+              <label htmlFor="scan-gate-entry-count" className="text-xs text-[var(--color-text-muted)]">Persons entering now:</label>
+              <input
+                id="scan-gate-entry-count"
+                type="number"
+                min={1}
+                max={200}
+                value={gateEntryCount}
+                onChange={(e) => setGateEntryCount(Math.max(1, Number(e.target.value) || 1))}
+                className="w-20 border border-[var(--color-border)] rounded-lg px-2 py-1 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
             </div>
           )}
         </CardBody>
@@ -507,6 +564,21 @@ export default function ScanPage(): JSX.Element {
                 );
               })}
             </div>
+
+            {/* Ride usage summary for ride mode */}
+            {mode === "gate" && (
+              <div className="rounded-xl bg-emerald-50 border border-emerald-200 px-4 py-3 flex items-center justify-between">
+                <p className="text-sm font-medium text-emerald-800">Gate entry usage</p>
+                <div className="text-right">
+                  <p className="text-xl font-bold text-emerald-700">
+                    {lookupResult.gateUsage.remainingCount} <span className="text-sm font-normal">remaining</span>
+                  </p>
+                  <p className="text-xs text-emerald-700">
+                    {lookupResult.gateUsage.enteredCount} / {lookupResult.gateUsage.allowedCount} entered
+                  </p>
+                </div>
+              </div>
+            )}
 
             {/* Ride usage summary for ride mode */}
             {mode === "ride" && selectedRideId && lookupResult.rideUsage[selectedRideId] !== undefined && (

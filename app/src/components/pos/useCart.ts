@@ -120,12 +120,15 @@ export function useCart() {
     (s, i) => s + i.unitPrice * i.quantity,
     0
   );
-  const gstAmount = state.items.reduce(
+  const rawGstAmount = state.items.reduce(
     (s, i) => s + i.unitPrice * i.quantity * (i.gstRate / 100),
     0
   );
-  const discountAmount = state.coupon?.discountAmount ?? 0;
-  const totalAmount = Math.max(0, subtotal + gstAmount - discountAmount);
+  const discountAmount = Math.max(0, Math.min(state.coupon?.discountAmount ?? 0, subtotal));
+  const discountedSubtotal = Math.max(0, subtotal - discountAmount);
+  const effectiveGstRate = subtotal > 0 ? rawGstAmount / subtotal : 0;
+  const gstAmount = discountedSubtotal * effectiveGstRate;
+  const totalAmount = Math.max(0, discountedSubtotal + gstAmount);
   const splitTotal = state.splitLines.reduce((s, l) => s + l.amount, 0);
   const splitRemaining = Math.round((totalAmount - splitTotal) * 100) / 100;
 

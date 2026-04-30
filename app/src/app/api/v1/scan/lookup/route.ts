@@ -28,7 +28,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     // not JSON — use q as-is
   }
 
-  const booking = await db.booking.findFirst({
+  const booking = await (db as any).booking.findFirst({
     where: { bookingNumber },
     include: {
       bookingTickets: {
@@ -61,6 +61,14 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   visitDate.setUTCHours(0, 0, 0, 0);
   const isValidDate = visitDate.getTime() === today.getTime();
   const isValidStatus = ["CONFIRMED", "CHECKED_IN"].includes(booking.status);
+  const allowedFromTickets = booking.bookingTickets.reduce(
+    (sum: number, line: { quantity: number }) => sum + Math.max(0, line.quantity),
+    0,
+  );
+  const allowedFromHeadcount = Math.max(0, booking.adults) + Math.max(0, booking.children);
+  const allowedCount = Math.max(1, allowedFromTickets, allowedFromHeadcount);
+  const enteredCount = Math.max(0, booking.gateEnteredCount ?? 0);
+  const remainingCount = Math.max(0, allowedCount - enteredCount);
 
   // Build per-ride usage summary
   const rideUsage: Record<string, { used: number; allowed: number; rideName?: string }> = {};
@@ -77,7 +85,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   }
 
   // Is gate entry already done?
-  const gateUsed = booking.status === "CHECKED_IN" || booking.status === "COMPLETED";
+  const gateUsed = enteredCount > 0 || booking.status === "CHECKED_IN" || booking.status === "COMPLETED";
 
   return NextResponse.json({
     booking: {
@@ -89,7 +97,12 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       status: booking.status,
       totalAmount: Number(booking.totalAmount),
       checkedInAt: booking.checkedInAt,
-      tickets: booking.bookingTickets.map((bt) => ({
+      tickets: booking.bookingTickets.map((bt: {
+        id: string;
+        quantity: number;
+        unitPrice: number;
+        ticketType: { id: string; name: string; rideId: string | null };
+      }) => ({
         id: bt.id,
         ticketTypeName: bt.ticketType.name,
         ticketTypeId: bt.ticketType.id,
@@ -102,7 +115,12 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       isValidDate,
       isValidStatus,
       gateUsed,
-      canEnterGate: isValidDate && isValidStatus,
+      canEnterGate: isValidDate && isValidStatus && remainingCount > 0,
+    },
+    gateUsage: {
+      allowedCount,
+      enteredCount,
+      remainingCount,
     },
     rideUsage,
   });

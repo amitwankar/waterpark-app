@@ -722,6 +722,7 @@ model Booking {
   totalAmount    Decimal       @map("total_amount") @db.Decimal(12, 2)
   status         BookingStatus @default(PENDING)
   checkedInAt    DateTime?     @map("checked_in_at")
+  gateEnteredCount Int         @default(0) @map("gate_entered_count")
   qrCode         String        @unique @default(cuid()) @map("qr_code") // scanned at gate; different from bookingNumber
   couponId       String?       @map("coupon_id")
   notes          String?       @db.Text

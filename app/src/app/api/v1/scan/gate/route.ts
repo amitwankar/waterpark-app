@@ -14,6 +14,7 @@ import { requireStaff } from "@/lib/session";
 
 const schema = z.object({
   bookingNumber: z.string().trim().min(1),
+  entryCount: z.coerce.number().int().min(1).max(200).default(1),
 });
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
@@ -23,12 +24,12 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const body = await req.json().catch(() => null);
   const parsed = schema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json({ message: "bookingNumber is required" }, { status: 400 });
+    return NextResponse.json({ message: "bookingNumber and valid entryCount are required" }, { status: 400 });
   }
 
-  const { bookingNumber } = parsed.data;
+  const { bookingNumber, entryCount } = parsed.data;
 
-  const booking = await db.booking.findFirst({
+  const booking = await (db as any).booking.findFirst({
     where: { bookingNumber },
     select: {
       id: true,
@@ -39,6 +40,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       status: true,
       checkedInAt: true,
       totalAmount: true,
+      adults: true,
+      children: true,
+      gateEnteredCount: true,
       bookingTickets: {
         select: {
           quantity: true,
@@ -79,12 +83,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // Already checked in — idempotent success
-  if (booking.status === "CHECKED_IN" || booking.status === "COMPLETED") {
+  if (booking.status === "COMPLETED") {
     return NextResponse.json({
       success: true,
       reEntry: true,
-      message: `Already checked in at ${booking.checkedInAt ? new Date(booking.checkedInAt).toLocaleTimeString("en-IN") : "—"}`,
+      message: "Visit already completed",
       booking: {
         bookingNumber: booking.bookingNumber,
         guestName: booking.guestName,
@@ -93,12 +96,50 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     });
   }
 
+  const allowedFromTickets = booking.bookingTickets.reduce(
+    (sum: number, line: { quantity: number }) => sum + Math.max(0, line.quantity),
+    0,
+  );
+  const allowedFromHeadcount = Math.max(0, booking.adults) + Math.max(0, booking.children);
+  const allowedCount = Math.max(1, allowedFromTickets, allowedFromHeadcount);
+  const enteredCount = Math.max(0, booking.gateEnteredCount ?? 0);
+  const remainingCount = Math.max(0, allowedCount - enteredCount);
+
+  if (entryCount > remainingCount) {
+    return NextResponse.json(
+      {
+        message: `Only ${remainingCount} ${remainingCount === 1 ? "person is" : "people are"} remaining for entry`,
+        code: "ENTRY_COUNT_EXCEEDED",
+        gateUsage: { allowedCount, enteredCount, remainingCount },
+      },
+      { status: 409 },
+    );
+  }
+
+  if (remainingCount <= 0) {
+    return NextResponse.json({
+      success: true,
+      reEntry: true,
+      message: "All guests for this booking are already marked entered",
+      gateUsage: { allowedCount, enteredCount, remainingCount: 0 },
+      booking: {
+        bookingNumber: booking.bookingNumber,
+        guestName: booking.guestName,
+        status: booking.status,
+      },
+    });
+  }
+
+  const nextEnteredCount = enteredCount + entryCount;
+  const nextRemainingCount = Math.max(0, allowedCount - nextEnteredCount);
+
   // Mark as CHECKED_IN
-  const updated = await db.booking.update({
+  const updated = await (db as any).booking.update({
     where: { id: booking.id },
     data: {
-      status: "CHECKED_IN",
-      checkedInAt: new Date(),
+      status: booking.status === "CONFIRMED" ? "CHECKED_IN" : booking.status,
+      checkedInAt: booking.checkedInAt ?? new Date(),
+      gateEnteredCount: nextEnteredCount,
     },
     select: {
       bookingNumber: true,
@@ -110,9 +151,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   return NextResponse.json({
     success: true,
-    reEntry: false,
+    reEntry: booking.status === "CHECKED_IN",
     message: "Entry granted",
     booking: updated,
     scannedBy: user!.name,
+    gateUsage: {
+      allowedCount,
+      enteredCount: nextEnteredCount,
+      remainingCount: nextRemainingCount,
+      justEntered: entryCount,
+    },
   });
 }
