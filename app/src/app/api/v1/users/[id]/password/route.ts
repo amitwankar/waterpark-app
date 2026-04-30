@@ -5,17 +5,11 @@ import { db } from "@/lib/db";
 import { hashPassword } from "@/lib/password";
 import { requireAdmin } from "@/lib/session";
 
-const passwordSchema = z
-  .string()
-  .min(8)
-  .regex(/[A-Z]/)
-  .regex(/[a-z]/)
-  .regex(/[0-9]/)
-  .regex(/[^A-Za-z0-9]/);
+const passwordSchema = z.string().trim().min(8, "Password must be at least 8 characters");
 
 const schema = z.object({
   password: passwordSchema,
-  confirmPassword: z.string().min(8),
+  confirmPassword: z.string().trim().min(8, "Confirm password must be at least 8 characters"),
 }).refine((v) => v.password === v.confirmPassword, {
   message: "Passwords do not match",
   path: ["confirmPassword"],
@@ -31,8 +25,9 @@ export async function PUT(
   const body = await request.json().catch(() => null);
   const parsed = schema.safeParse(body);
   if (!parsed.success) {
+    const message = parsed.error.issues.map((issue) => issue.message).join(", ");
     return NextResponse.json(
-      { error: parsed.error.issues[0]?.message ?? "Validation failed" },
+      { error: message || "Validation failed" },
       { status: 422 },
     );
   }

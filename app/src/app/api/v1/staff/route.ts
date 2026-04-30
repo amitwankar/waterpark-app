@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { Prisma } from "@prisma/client";
 
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/session";
@@ -105,7 +106,16 @@ export async function POST(req: NextRequest) {
   if (error) return error;
 
   const body = await req.json();
-  const parsed = createSchema.safeParse(body);
+  const normalizedBody = {
+    ...body,
+    name: typeof body?.name === "string" ? body.name.trim() : body?.name,
+    mobile: typeof body?.mobile === "string" ? body.mobile.trim() : body?.mobile,
+    email: typeof body?.email === "string" ? body.email.trim() : body?.email,
+    employeeCode: typeof body?.employeeCode === "string" ? body.employeeCode.trim() : body?.employeeCode,
+    department: typeof body?.department === "string" ? body.department.trim() : body?.department,
+    joiningDate: typeof body?.joiningDate === "string" ? body.joiningDate.trim() : body?.joiningDate,
+  };
+  const parsed = createSchema.safeParse(normalizedBody);
   if (!parsed.success) {
     return NextResponse.json(
       { error: "Validation failed", issues: parsed.error.issues },
@@ -184,49 +194,57 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const user = await db.$transaction(async (tx) => {
-    const created = await tx.user.create({
-      data: {
-        ...userFields,
-        email: normalizedEmail,
-        role,
-        subRole: role === "EMPLOYEE" ? subRole : null,
-        passwordHash,
-        emailVerified: false,
-        ...(role === "EMPLOYEE"
-          ? {
-              staffProfile: {
-                create: {
-                  employeeCode: finalEmployeeCode!,
-                  department: department?.trim() || null,
-                  joiningDate: new Date(joiningDate!),
+  let user;
+  try {
+    user = await db.$transaction(async (tx) => {
+      const created = await tx.user.create({
+        data: {
+          ...userFields,
+          email: normalizedEmail,
+          role,
+          subRole: role === "EMPLOYEE" ? subRole : null,
+          passwordHash,
+          emailVerified: false,
+          ...(role === "EMPLOYEE"
+            ? {
+                staffProfile: {
+                  create: {
+                    employeeCode: finalEmployeeCode!,
+                    department: department?.trim() || null,
+                    joiningDate: new Date(joiningDate!),
+                  },
                 },
-              },
-            }
-          : {}),
-      },
-      select: {
-        id: true,
-        name: true,
-        mobile: true,
-        email: true,
-        subRole: true,
-        isActive: true,
-        staffProfile: true,
-      },
-    });
+              }
+            : {}),
+        },
+        select: {
+          id: true,
+          name: true,
+          mobile: true,
+          email: true,
+          subRole: true,
+          isActive: true,
+          staffProfile: true,
+        },
+      });
 
-    await tx.account.create({
-      data: {
-        userId: created.id,
-        providerId: "credential",
-        accountId: created.id,
-        password: passwordHash,
-      },
-    });
+      await tx.account.create({
+        data: {
+          userId: created.id,
+          providerId: "credential",
+          accountId: created.id,
+          password: passwordHash,
+        },
+      });
 
-    return created;
-  });
+      return created;
+    });
+  } catch (createError) {
+    if (createError instanceof Prisma.PrismaClientKnownRequestError && createError.code === "P2002") {
+      return NextResponse.json({ error: "Staff already exists with same mobile/email/employee code" }, { status: 409 });
+    }
+    return NextResponse.json({ error: "Failed to create staff member" }, { status: 500 });
+  }
 
   return NextResponse.json(user, { status: 201 });
 }

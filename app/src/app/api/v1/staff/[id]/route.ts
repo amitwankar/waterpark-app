@@ -136,7 +136,7 @@ export async function DELETE(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const { error } = await requireAdmin();
+  const { user, error } = await requireAdmin();
   if (error) return error;
 
   const { id } = await params;
@@ -148,6 +148,12 @@ export async function DELETE(
 
   if (!target) {
     return NextResponse.json({ error: "Staff member not found" }, { status: 404 });
+  }
+  if (user.id === id) {
+    return NextResponse.json(
+      { error: "You cannot delete your own currently logged-in account." },
+      { status: 400 }
+    );
   }
 
   try {
