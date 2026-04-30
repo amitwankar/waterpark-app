@@ -68,6 +68,21 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   });
 
   if (!loginCandidate) {
+    const inactiveUser = await db.user.findFirst({
+      where: {
+        mobile,
+        role: { in: ["ADMIN", "EMPLOYEE"] },
+        isDeleted: false,
+        isActive: false,
+      },
+      select: { id: true },
+    });
+    if (inactiveUser) {
+      return NextResponse.json(
+        { message: "Your account is disabled. Contact administrator." },
+        { status: 403 },
+      );
+    }
     return NextResponse.json(
       {
         message: "Invalid mobile or password",

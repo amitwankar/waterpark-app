@@ -68,25 +68,39 @@ export async function DELETE(
   if (error) return error;
 
   const { id } = await params;
-
-  const zone = await db.lockerZone.findUnique({
-    where: { id },
-    include: {
-      _count: { select: { lockers: true } },
-    },
-  });
+  const zone = await db.lockerZone.findUnique({ where: { id }, select: { id: true } });
 
   if (!zone) {
     return NextResponse.json({ error: "Zone not found" }, { status: 404 });
   }
 
-  if (zone._count.lockers > 0) {
+  const lockers = await db.locker.findMany({
+    where: { zoneId: id },
+    select: { id: true, number: true, isActive: true },
+  });
+  const lockerIds = lockers.map((locker) => locker.id);
+  if (lockerIds.length > 0) {
+    const assignmentCount = await db.lockerAssignment.count({
+      where: { lockerId: { in: lockerIds } },
+    });
+    if (assignmentCount > 0) {
+      return NextResponse.json(
+        { error: "Cannot delete zone because locker history exists. Remove locker assignments first." },
+        { status: 409 },
+      );
+    }
+  }
+
+  if (lockers.some((locker) => locker.isActive)) {
     return NextResponse.json(
-      { error: "Cannot delete zone with lockers assigned. Move/delete lockers first." },
+      { error: "Cannot delete zone with active lockers. Delete or deactivate lockers first." },
       { status: 409 }
     );
   }
 
+  if (lockerIds.length > 0) {
+    await db.locker.deleteMany({ where: { id: { in: lockerIds } } });
+  }
   await db.lockerZone.delete({ where: { id } });
   return NextResponse.json({ ok: true });
 }

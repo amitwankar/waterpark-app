@@ -27,10 +27,11 @@ export async function GET(req: NextRequest) {
   const status = searchParams.get("status");
   const size = searchParams.get("size");
   const categoryId = searchParams.get("categoryId");
+  const active = searchParams.get("active");
 
   const lockers = await db.locker.findMany({
     where: {
-      isActive: true,
+      ...(active === "0" ? { isActive: false } : active === "all" ? {} : { isActive: true }),
       ...(zoneId ? { zoneId } : {}),
       ...(categoryId ? { categoryId } : {}),
       ...(status ? { status: status as never } : {}),
@@ -76,11 +77,8 @@ export async function POST(req: NextRequest) {
   const existing = await db.locker.findUnique({
     where: { number: parsed.data.number },
   });
-  if (existing) {
-    return NextResponse.json(
-      { error: "Locker number already exists" },
-      { status: 409 }
-    );
+  if (existing?.isActive) {
+    return NextResponse.json({ error: "Locker number already exists" }, { status: 409 });
   }
 
   if (parsed.data.categoryId) {
@@ -93,7 +91,15 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const locker = await db.locker.create({ data: parsed.data });
+  const locker = existing
+    ? await db.locker.update({
+        where: { id: existing.id },
+        data: {
+          ...parsed.data,
+          isActive: true,
+        },
+      })
+    : await db.locker.create({ data: parsed.data });
   return NextResponse.json(
     {
       ...locker,

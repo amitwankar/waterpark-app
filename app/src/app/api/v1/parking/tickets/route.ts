@@ -42,10 +42,12 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
   const { searchParams } = new URL(req.url);
   const status = searchParams.get("status");
+  const posSessionId = searchParams.get("posSessionId");
 
   const rows = await db.parkingTicket.findMany({
     where: {
       ...(status ? { status: status as "ACTIVE" | "EXITED" | "CANCELLED" } : {}),
+      ...(posSessionId ? { posSessionId } : {}),
     },
     orderBy: { entryAt: "desc" },
     take: 200,

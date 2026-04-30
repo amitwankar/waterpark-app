@@ -14,7 +14,7 @@ export interface TechWorkOrderCardProps {
     priority: "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
     status: "OPEN" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED";
     dueDate: string | null;
-    asset: { id: string; name: string; assetType: string };
+    asset?: { id: string; name: string; assetType: string } | null;
   };
   onChanged?: () => void;
 }
@@ -30,7 +30,7 @@ export function TechWorkOrderCard({ workOrder, onChanged }: TechWorkOrderCardPro
         <div>
           <p className="text-xs text-[var(--color-text-muted)]">{workOrder.workOrderNumber}</p>
           <h3 className="text-base font-semibold text-[var(--color-text)]">{workOrder.title}</h3>
-          <p className="text-xs text-[var(--color-text-muted)]">{workOrder.asset.name}</p>
+          <p className="text-xs text-[var(--color-text-muted)]">{workOrder.asset?.name ?? "Asset unavailable"}</p>
         </div>
         <PriorityBadge priority={workOrder.priority} />
       </CardHeader>

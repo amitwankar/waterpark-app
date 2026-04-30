@@ -37,6 +37,7 @@ interface ParkingTerminalProps {
   terminalId: string;
   cashierName: string;
   onSessionClosed: () => void;
+  onExitPos: () => void;
 }
 
 const VEHICLE_LABELS: Record<ParkingRate["vehicleType"], string> = {
@@ -50,7 +51,7 @@ function money(value: number): string {
   return `₹${Number(value || 0).toFixed(2)}`;
 }
 
-export function ParkingTerminal({ sessionId, terminalId, cashierName, onSessionClosed }: ParkingTerminalProps): JSX.Element {
+export function ParkingTerminal({ sessionId, terminalId, cashierName, onSessionClosed, onExitPos }: ParkingTerminalProps): JSX.Element {
   const [rates, setRates] = useState<ParkingRate[]>([]);
   const [tickets, setTickets] = useState<ParkingTicket[]>([]);
   const [loading, setLoading] = useState(true);
@@ -90,7 +91,7 @@ export function ParkingTerminal({ sessionId, terminalId, cashierName, onSessionC
     try {
       const [ratesRes, ticketsRes] = await Promise.all([
         fetch("/api/v1/parking/rates"),
-        fetch("/api/v1/parking/tickets"),
+        fetch(`/api/v1/parking/tickets?posSessionId=${encodeURIComponent(sessionId)}`),
       ]);
 
       if (ratesRes.ok) {
@@ -108,7 +109,7 @@ export function ParkingTerminal({ sessionId, terminalId, cashierName, onSessionC
 
   useEffect(() => {
     void loadAll();
-  }, []);
+  }, [sessionId]);
 
   useEffect(() => {
     if (!selectedTicketId && activeTickets.length > 0) {
@@ -252,14 +253,14 @@ hr { margin:10px 0; }
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => setShowCloser(true)}
+              onClick={onExitPos}
               className="rounded-lg border border-[var(--color-border)] px-3 py-2 text-xs font-medium text-[var(--color-text)] hover:bg-zinc-100 dark:hover:bg-zinc-800"
             >
               POS Dashboard
             </button>
             <button
               type="button"
-              onClick={() => setShowCloser(true)}
+              onClick={onExitPos}
               className="rounded-lg border border-[var(--color-border)] px-3 py-2 text-xs font-medium text-[var(--color-text)] hover:bg-zinc-100 dark:hover:bg-zinc-800"
             >
               Exit POS

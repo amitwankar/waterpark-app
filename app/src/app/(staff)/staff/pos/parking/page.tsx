@@ -60,7 +60,10 @@ export default function ParkingPosPage(): JSX.Element {
 
   if (!session) {
     return (
-      <SessionOpener terminalId={terminalId} onSessionOpened={(id) => setSession({ id, staffName: "You" })} />
+      <SessionOpener
+        terminalId={terminalId}
+        onSessionOpened={(id, staffName) => setSession({ id, staffName: staffName || "You" })}
+      />
     );
   }
 
@@ -69,6 +72,7 @@ export default function ParkingPosPage(): JSX.Element {
       sessionId={session.id}
       terminalId={terminalId}
       cashierName={session.staffName}
+      onExitPos={() => router.push("/staff/pos")}
       onSessionClosed={() => {
         setSession(null);
         if (canAccessAdminDashboard) {

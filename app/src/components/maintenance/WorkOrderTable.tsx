@@ -3,7 +3,6 @@ import Link from "next/link";
 import { DataTable, type DataTableColumn } from "@/components/layout/DataTable";
 import { PriorityBadge } from "@/components/maintenance/PriorityBadge";
 import { Badge } from "@/components/ui/Badge";
-import { Button } from "@/components/ui/Button";
 
 export interface WorkOrderListItem {
   id: string;
@@ -13,17 +12,18 @@ export interface WorkOrderListItem {
   status: "OPEN" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED";
   dueDate: string | null;
   isOverdue: boolean;
-  asset: {
+  asset?: {
     id: string;
     name: string;
     assetType: string;
-  };
+  } | null;
   assignee?: { id: string; name: string } | null;
 }
 
 export interface WorkOrderTableProps {
   items: WorkOrderListItem[];
   loading?: boolean;
+  onDelete?: (workOrderId: string) => void;
 }
 
 function statusVariant(status: WorkOrderListItem["status"]): "default" | "warning" | "success" | "danger" {
@@ -33,7 +33,7 @@ function statusVariant(status: WorkOrderListItem["status"]): "default" | "warnin
   return "danger";
 }
 
-export function WorkOrderTable({ items, loading }: WorkOrderTableProps): JSX.Element {
+export function WorkOrderTable({ items, loading, onDelete }: WorkOrderTableProps): JSX.Element {
   const columns: Array<DataTableColumn<WorkOrderListItem>> = [
     {
       key: "wo",
@@ -46,7 +46,7 @@ export function WorkOrderTable({ items, loading }: WorkOrderTableProps): JSX.Ele
       render: (row) => (
         <div>
           <p className="font-medium text-[var(--color-text)]">{row.title}</p>
-          <p className="text-xs text-[var(--color-text-muted)]">{row.asset.name}</p>
+          <p className="text-xs text-[var(--color-text-muted)]">{row.asset?.name ?? "Asset unavailable"}</p>
         </div>
       ),
     },
@@ -78,9 +78,23 @@ export function WorkOrderTable({ items, loading }: WorkOrderTableProps): JSX.Ele
       key: "actions",
       header: "Actions",
       render: (row) => (
-        <Link href={`/admin/maintenance/work-orders/${row.id}`}>
-          <Button size="sm" variant="outline">View</Button>
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            href={`/admin/maintenance/work-orders/${row.id}`}
+            className="inline-flex h-8 items-center justify-center rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-sm font-medium text-[var(--color-text)] transition-all duration-150 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+          >
+            View
+          </Link>
+          {onDelete ? (
+            <button
+              type="button"
+              onClick={() => onDelete(row.id)}
+              className="inline-flex h-8 items-center justify-center rounded-[var(--radius-md)] border border-red-300 bg-red-50 px-3 text-sm font-medium text-red-700 transition-all duration-150 hover:bg-red-100"
+            >
+              Delete
+            </button>
+          ) : null}
+        </div>
       ),
     },
   ];

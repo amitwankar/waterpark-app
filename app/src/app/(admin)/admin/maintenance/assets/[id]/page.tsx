@@ -9,6 +9,7 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
+import { useToast } from "@/components/feedback/Toast";
 
 interface AssetDetailResponse {
   asset: {
@@ -32,7 +33,9 @@ export default function AdminAssetDetailPage(): JSX.Element {
   const id = String(params.id ?? "");
 
   const [isPending, startTransition] = useTransition();
+  const { pushToast } = useToast();
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<"WORK_ORDERS" | "SERVICE_HISTORY" | "EDIT">("WORK_ORDERS");
   const [asset, setAsset] = useState<AssetDetailResponse["asset"] | null>(null);
 
@@ -45,6 +48,7 @@ export default function AdminAssetDetailPage(): JSX.Element {
     if (!id) return;
     setLoading(true);
     try {
+      setError(null);
       const response = await fetch(`/api/v1/maintenance/assets/${id}`, { method: "GET" });
       const payload = (await response.json().catch(() => null)) as AssetDetailResponse | null;
       if (response.ok && payload?.asset) {
@@ -53,7 +57,13 @@ export default function AdminAssetDetailPage(): JSX.Element {
         setEditLocation(payload.asset.location ?? "");
         setEditSerial(payload.asset.serialNumber ?? "");
         setEditWarranty(payload.asset.warrantyExpiry ? payload.asset.warrantyExpiry.slice(0, 10) : "");
+      } else {
+        setAsset(null);
+        setError("Asset details could not be loaded.");
       }
+    } catch {
+      setAsset(null);
+      setError("Asset details could not be loaded.");
     } finally {
       setLoading(false);
     }
@@ -113,16 +123,25 @@ export default function AdminAssetDetailPage(): JSX.Element {
                   loading={isPending}
                   onClick={() => {
                     startTransition(() => {
-                      void fetch(`/api/v1/maintenance/assets/${id}`, {
-                        method: "PUT",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                          name: editName,
-                          location: editLocation || null,
-                          serialNumber: editSerial || null,
-                          warrantyExpiry: editWarranty || null,
-                        }),
-                      }).then(() => loadAsset());
+                      void (async () => {
+                        const response = await fetch(`/api/v1/maintenance/assets/${id}`, {
+                          method: "PUT",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({
+                            name: editName,
+                            location: editLocation || null,
+                            serialNumber: editSerial || null,
+                            warrantyExpiry: editWarranty || null,
+                          }),
+                        });
+                        if (!response.ok) {
+                          const body = (await response.json().catch(() => null)) as { message?: string } | null;
+                          pushToast({ title: "Update failed", message: body?.message ?? "Could not update asset", variant: "error" });
+                          return;
+                        }
+                        pushToast({ title: "Asset updated", variant: "success" });
+                        await loadAsset();
+                      })();
                     });
                   }}
                 >
@@ -133,6 +152,7 @@ export default function AdminAssetDetailPage(): JSX.Element {
           ) : null}
         </div>
       </div>
+      {error ? <p className="text-sm text-red-600">{error}</p> : null}
     </div>
   );
 }

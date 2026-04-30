@@ -48,6 +48,7 @@ export default function AdminRidesPage(): JSX.Element {
   const [loading, setLoading] = useState(true);
   const [zones, setZones] = useState<ZoneItem[]>([]);
   const [rides, setRides] = useState<RideItem[]>([]);
+  const [showDeleted, setShowDeleted] = useState(true);
   const [activeZoneId, setActiveZoneId] = useState<string>("");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingRide, setEditingRide] = useState<RideItem | null>(null);
@@ -56,7 +57,10 @@ export default function AdminRidesPage(): JSX.Element {
   async function loadData(zoneId?: string): Promise<void> {
     setLoading(true);
     try {
-      const zoneQuery = zoneId ? `?zoneId=${zoneId}` : "";
+      const query = new URLSearchParams();
+      if (zoneId) query.set("zoneId", zoneId);
+      if (showDeleted) query.set("includeDeleted", "1");
+      const zoneQuery = query.toString() ? `?${query.toString()}` : "";
       const [ridesResponse, zonesResponse] = await Promise.all([
         fetch(`/api/v1/rides${zoneQuery}`, { method: "GET" }),
         fetch("/api/v1/zones", { method: "GET" }),
@@ -87,7 +91,7 @@ export default function AdminRidesPage(): JSX.Element {
 
   useEffect(() => {
     void loadData();
-  }, []);
+  }, [showDeleted]);
 
   const filteredRides = useMemo(
     () => (activeZoneId ? rides.filter((ride) => ride.zone.id === activeZoneId) : rides),
@@ -123,6 +127,16 @@ export default function AdminRidesPage(): JSX.Element {
         activeZoneId={activeZoneId || undefined}
         onChange={(zoneId) => setActiveZoneId(zoneId)}
       />
+
+      <div className="flex items-center gap-2">
+        <Button
+          size="sm"
+          variant={showDeleted ? "primary" : "outline"}
+          onClick={() => setShowDeleted((state) => !state)}
+        >
+          {showDeleted ? "Showing Deleted + Active" : "Show Deleted Also"}
+        </Button>
+      </div>
 
       {loading ? (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">

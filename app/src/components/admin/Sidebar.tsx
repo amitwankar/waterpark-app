@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
 import {
   ClipboardList,
   LayoutGrid,
@@ -24,6 +25,8 @@ import {
   ScanLine,
   Package,
   CarFront,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/Badge";
@@ -122,6 +125,47 @@ function getGroups(): SidebarGroup[] {
 
 export function Sidebar({ collapsed, user, mobile }: SidebarProps): JSX.Element {
   const pathname = usePathname();
+  const groups = useMemo(() => getGroups(), []);
+  const [parkName, setParkName] = useState("Waterpark Pro");
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    if (collapsed) return;
+    const key = "wp.admin.sidebar.groups";
+    const saved = window.localStorage.getItem(key);
+    if (saved) {
+      try {
+        setExpandedGroups(JSON.parse(saved) as Record<string, boolean>);
+        return;
+      } catch {
+        // ignore invalid local storage
+      }
+    }
+    const defaults = Object.fromEntries(groups.map((group) => [group.title, true]));
+    setExpandedGroups(defaults);
+  }, [collapsed, groups]);
+
+  useEffect(() => {
+    if (collapsed || Object.keys(expandedGroups).length === 0) return;
+    window.localStorage.setItem("wp.admin.sidebar.groups", JSON.stringify(expandedGroups));
+  }, [collapsed, expandedGroups]);
+
+  useEffect(() => {
+    void fetch("/api/v1/park-config")
+      .then((res) => res.json())
+      .then((payload: { parkName?: string } | null) => {
+        if (payload?.parkName?.trim()) {
+          setParkName(payload.parkName.trim());
+        }
+      })
+      .catch(() => {
+        // keep default name
+      });
+  }, []);
+
+  function toggleGroup(title: string): void {
+    setExpandedGroups((prev) => ({ ...prev, [title]: !(prev[title] ?? true) }));
+  }
 
   return (
     <aside
@@ -134,15 +178,24 @@ export function Sidebar({ collapsed, user, mobile }: SidebarProps): JSX.Element 
       )}
     >
       <div className="border-b border-[var(--color-border)] px-4 py-4">
-        <p className={cn("font-semibold text-[var(--color-text)]", collapsed ? "text-xs" : "text-base")}>{collapsed ? "WP" : "Waterpark Pro"}</p>
+        <p className={cn("font-semibold text-[var(--color-text)]", collapsed ? "text-xs" : "text-base")}>{collapsed ? "WP" : parkName}</p>
         {!collapsed ? <p className="mt-1 text-xs text-[var(--color-text-muted)]">{user?.name ?? "Admin"}</p> : null}
       </div>
 
       <nav className="flex-1 space-y-4 overflow-y-auto px-2 py-4">
-        {getGroups().map((group) => (
+        {groups.map((group) => (
           <div key={group.title}>
-            {!collapsed ? <p className="px-2 text-xs font-semibold uppercase text-[var(--color-text-muted)]">{group.title}</p> : null}
-            <ul className="mt-1 space-y-1">
+            {!collapsed ? (
+              <button
+                type="button"
+                className="flex w-full items-center justify-between px-2 text-xs font-semibold uppercase text-[var(--color-text-muted)]"
+                onClick={() => toggleGroup(group.title)}
+              >
+                <span>{group.title}</span>
+                {expandedGroups[group.title] ?? true ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+              </button>
+            ) : null}
+            <ul className={cn("mt-1 space-y-1", collapsed || (expandedGroups[group.title] ?? true) ? "block" : "hidden")}>
               {group.items.map((item) => {
                 const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
                 const Icon = item.icon;

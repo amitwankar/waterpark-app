@@ -116,7 +116,7 @@ export default function SettingsPage(): JSX.Element {
           fetchJson<SettingsPayload>("/api/v1/settings"),
           fetchJson<HolidayItem[]>("/api/v1/settings/holidays"),
           fetchJson<Array<{ id: string; name: string; mobile: string; email: string | null; isActive: boolean }>>("/api/v1/admin-users"),
-          fetchJson<Array<{ id: string; name: string; mobile: string; email: string | null; subRole: string | null; isActive: boolean }>>("/api/v1/staff"),
+          fetchJson<Array<{ id: string; name: string; mobile: string; email: string | null; subRole: string | null; isActive: boolean }>>("/api/v1/staff?role=EMPLOYEE"),
           fetchJson<{ rows?: AuditLogRow[] }>("/api/v1/settings/audit-log?page=1&pageSize=20"),
         ]);
 

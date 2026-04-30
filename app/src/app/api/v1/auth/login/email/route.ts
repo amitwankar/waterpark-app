@@ -39,6 +39,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   });
 
   if (!loginCandidate) {
+    const inactive = await db.user.findFirst({
+      where: {
+        email,
+        role: { in: ["ADMIN", "EMPLOYEE"] },
+        isDeleted: false,
+        isActive: false,
+      },
+      select: { id: true },
+    });
+    if (inactive) {
+      return NextResponse.json({ message: "Your account is disabled. Contact administrator." }, { status: 403 });
+    }
     return NextResponse.json({ message: "Invalid email or password" }, { status: 401 });
   }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Badge } from "@/components/ui/Badge";
@@ -105,12 +105,33 @@ export default function CouponsAdminPage(): JSX.Element {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  function parseApiError(payload: unknown, fallback: string): string {
+    if (!payload || typeof payload !== "object") return fallback;
+    const body = payload as {
+      message?: string;
+      error?: string;
+      issues?: { fieldErrors?: Record<string, string[] | undefined>; formErrors?: string[] };
+    };
+    const top = body.message || body.error || fallback;
+    const fieldErrors = body.issues?.fieldErrors
+      ? Object.entries(body.issues.fieldErrors)
+          .flatMap(([field, messages]) => (messages ?? []).map((msg) => `${field}: ${msg}`))
+      : [];
+    const formErrors = body.issues?.formErrors ?? [];
+    const all = [...formErrors, ...fieldErrors].filter(Boolean);
+    return all.length > 0 ? `${top} (${all.join("; ")})` : top;
+  }
+
   async function loadCoupons(): Promise<void> {
     setLoading(true);
-    const response = await fetch(`/api/v1/coupons?q=${encodeURIComponent(query)}`, { cache: "no-store" });
-    const payload = (await response.json().catch(() => null)) as { items?: CouponItem[] } | null;
-    setItems(payload?.items ?? []);
-    setLoading(false);
+    try {
+      const response = await fetch(`/api/v1/coupons?q=${encodeURIComponent(query)}`, { cache: "no-store" });
+      const payload = (await response.json().catch(() => null)) as { items?: unknown } | null;
+      const nextItems = Array.isArray(payload?.items) ? (payload?.items as CouponItem[]) : [];
+      setItems(nextItems);
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
@@ -122,7 +143,7 @@ export default function CouponsAdminPage(): JSX.Element {
     return () => window.clearTimeout(timer);
   }, [query]);
 
-  const activeCount = useMemo(() => items.filter((item) => item.isActive).length, [items]);
+  const activeCount = Array.isArray(items) ? items.filter((item) => item.isActive).length : 0;
 
   function resetForm(): void {
     setEditingId(null);
@@ -164,19 +185,38 @@ export default function CouponsAdminPage(): JSX.Element {
   }
 
   async function saveCoupon(): Promise<void> {
+    if (!editingId && !form.code.trim()) {
+      setError("Coupon code is required.");
+      return;
+    }
+    if (!form.validFrom || !form.validTo) {
+      setError("Valid From and Valid To are required.");
+      return;
+    }
+    const validFromDate = new Date(form.validFrom);
+    const validToDate = new Date(form.validTo);
+    if (Number.isNaN(validFromDate.getTime()) || Number.isNaN(validToDate.getTime())) {
+      setError("Please enter valid dates.");
+      return;
+    }
+    if (validToDate.getTime() <= validFromDate.getTime()) {
+      setError("Valid To must be later than Valid From.");
+      return;
+    }
+
     setSaving(true);
     setError(null);
-    const payload = {
+    const payload: Record<string, unknown> = {
       ...(editingId ? {} : { code: form.code.toUpperCase() }),
-      title: form.title || undefined,
-      description: form.description || undefined,
+      title: form.title.trim() || undefined,
+      description: form.description.trim() || undefined,
       discountType: form.discountType,
       discountValue: Number(form.discountValue || 0),
       minBookingAmount: form.minBookingAmount ? Number(form.minBookingAmount) : undefined,
       maxUses: form.maxUses ? Number(form.maxUses) : null,
       maxUsesPerUser: form.maxUsesPerUser ? Number(form.maxUsesPerUser) : null,
-      validFrom: new Date(form.validFrom).toISOString(),
-      validTo: new Date(form.validTo).toISOString(),
+      validFrom: validFromDate.toISOString(),
+      validTo: validToDate.toISOString(),
       isPublicOffer: form.isPublicOffer,
       isActive: form.isActive,
       couponScope: form.couponScope,
@@ -189,8 +229,8 @@ export default function CouponsAdminPage(): JSX.Element {
     });
 
     if (!response.ok) {
-      const result = (await response.json().catch(() => null)) as { message?: string } | null;
-      setError(result?.message ?? "Could not save coupon");
+      const result = await response.json().catch(() => null);
+      setError(parseApiError(result, "Could not save coupon"));
       setSaving(false);
       return;
     }

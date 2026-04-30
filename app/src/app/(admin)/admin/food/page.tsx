@@ -49,8 +49,13 @@ export default function AdminFoodPage(): JSX.Element {
   }
 
   async function deactivate(id: string) {
-    if (!confirm("Deactivate this outlet? It will be hidden from all views.")) return;
-    await fetch(`/api/v1/food/outlets/${id}`, { method: "DELETE" });
+    if (!confirm("Permanently delete this outlet? This cannot be undone.")) return;
+    const response = await fetch(`/api/v1/food/outlets/${id}`, { method: "DELETE" });
+    if (!response.ok) {
+      const body = (await response.json().catch(() => null)) as { error?: string } | null;
+      alert(body?.error ?? "Failed to delete outlet");
+      return;
+    }
     await load();
   }
 
@@ -140,7 +145,7 @@ export default function AdminFoodPage(): JSX.Element {
                   className="ml-auto text-red-500 hover:text-red-600"
                   onClick={() => void deactivate(outlet.id)}
                 >
-                  Deactivate
+                  Delete
                 </Button>
               </div>
             </div>

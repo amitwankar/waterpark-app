@@ -6,17 +6,20 @@ import { CommunicationLogTable, type CommunicationLogItem } from "@/components/c
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
+import { useToast } from "@/components/feedback/Toast";
 
 interface LogResponse {
   items: CommunicationLogItem[];
 }
 
 export default function CampaignLogPage(): JSX.Element {
+  const { pushToast } = useToast();
   const [items, setItems] = useState<CommunicationLogItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [channel, setChannel] = useState("");
   const [status, setStatus] = useState("");
   const [search, setSearch] = useState("");
+  const [error, setError] = useState<string | null>(null);
 
   async function loadLogs(): Promise<void> {
     setLoading(true);
@@ -30,7 +33,12 @@ export default function CampaignLogPage(): JSX.Element {
       const payload = (await response.json().catch(() => ({ items: [] }))) as LogResponse;
       if (response.ok) {
         setItems(payload.items ?? []);
+        setError(null);
+      } else {
+        setError("Could not load communication logs");
       }
+    } catch {
+      setError("Could not load communication logs");
     } finally {
       setLoading(false);
     }
@@ -39,6 +47,18 @@ export default function CampaignLogPage(): JSX.Element {
   useEffect(() => {
     void loadLogs();
   }, [channel, status]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      void loadLogs();
+    }, 15000);
+    return () => window.clearInterval(timer);
+  }, [channel, status, search]);
+
+  useEffect(() => {
+    if (!error) return;
+    pushToast({ title: "Load failed", message: error, variant: "error" });
+  }, [error, pushToast]);
 
   return (
     <div className="space-y-5">
@@ -83,6 +103,7 @@ export default function CampaignLogPage(): JSX.Element {
       </div>
 
       <CommunicationLogTable items={items} loading={loading} />
+      {error ? <p className="text-sm text-red-600">{error}</p> : null}
     </div>
   );
 }

@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { getIp, logAudit } from "@/lib/audit";
 import { db } from "@/lib/db";
-import { requireAdmin } from "@/lib/session";
+import { requireStaff } from "@/lib/session";
 import { invalidateSettingsCache } from "@/lib/settings";
 
 const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
@@ -22,7 +22,7 @@ function toDateOnly(date: string): Date {
 }
 
 export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const { user, error } = await requireAdmin();
+  const { user, error } = await requireStaff();
   if (error) return error;
 
   const { id } = await params;
@@ -78,7 +78,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
 }
 
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const { user, error } = await requireAdmin();
+  const { user, error } = await requireStaff();
   if (error) return error;
 
   const { id } = await params;

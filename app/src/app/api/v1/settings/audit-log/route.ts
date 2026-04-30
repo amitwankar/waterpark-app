@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { db } from "@/lib/db";
-import { requireAdmin } from "@/lib/session";
+import { requireStaff } from "@/lib/session";
 
 export async function GET(request: NextRequest) {
-  const { error } = await requireAdmin();
+  const { error } = await requireStaff();
   if (error) return error;
 
   const { searchParams } = new URL(request.url);

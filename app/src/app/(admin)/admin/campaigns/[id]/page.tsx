@@ -7,6 +7,8 @@ import { CampaignProgress } from "@/components/campaigns/CampaignProgress";
 import { RecipientTable, type RecipientTableItem } from "@/components/campaigns/RecipientTable";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Card, CardBody, CardHeader } from "@/components/ui/Card";
+import { useToast } from "@/components/feedback/Toast";
+import { Button } from "@/components/ui/Button";
 
 interface CampaignResponse {
   campaign: {
@@ -30,27 +32,46 @@ interface RecipientsResponse {
 }
 
 export default function CampaignDetailPage(): JSX.Element {
+  const { pushToast } = useToast();
   const params = useParams<{ id: string }>();
   const id = String(params.id ?? "");
 
   const [tab, setTab] = useState<"RECIPIENTS" | "TIMELINE" | "PREVIEW">("RECIPIENTS");
   const [campaign, setCampaign] = useState<CampaignResponse["campaign"] | null>(null);
   const [recipients, setRecipients] = useState<RecipientTableItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   async function loadCampaign(): Promise<void> {
-    const [campaignResponse, recipientsResponse] = await Promise.all([
-      fetch(`/api/v1/campaigns/${id}`, { method: "GET" }),
-      fetch(`/api/v1/campaigns/${id}/recipients`, { method: "GET" }),
-    ]);
+    setLoading(true);
+    try {
+      const [campaignResponse, recipientsResponse] = await Promise.all([
+        fetch(`/api/v1/campaigns/${id}`, { method: "GET" }),
+        fetch(`/api/v1/campaigns/${id}/recipients`, { method: "GET" }),
+      ]);
 
-    const campaignPayload = (await campaignResponse.json().catch(() => null)) as CampaignResponse | null;
-    const recipientsPayload = (await recipientsResponse.json().catch(() => ({ items: [] }))) as RecipientsResponse;
+      const campaignPayload = (await campaignResponse.json().catch(() => null)) as CampaignResponse | { message?: string } | null;
+      const recipientsPayload = (await recipientsResponse.json().catch(() => ({ items: [] }))) as RecipientsResponse | { message?: string };
 
-    if (campaignResponse.ok && campaignPayload?.campaign) {
-      setCampaign(campaignPayload.campaign);
-    }
-    if (recipientsResponse.ok) {
-      setRecipients(recipientsPayload.items ?? []);
+      if (!campaignResponse.ok) {
+        throw new Error((campaignPayload as { message?: string } | null)?.message ?? "Could not load campaign");
+      }
+      if (!recipientsResponse.ok) {
+        throw new Error((recipientsPayload as { message?: string } | null)?.message ?? "Could not load recipients");
+      }
+      if (campaignPayload && "campaign" in campaignPayload && campaignPayload.campaign) {
+        setCampaign(campaignPayload.campaign);
+      }
+      if ("items" in recipientsPayload) {
+        setRecipients(recipientsPayload.items ?? []);
+      }
+      setError(null);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Could not load campaign";
+      setError(message);
+      pushToast({ title: "Load failed", message, variant: "error" });
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -76,7 +97,11 @@ export default function CampaignDetailPage(): JSX.Element {
 
   return (
     <div className="space-y-5">
-      <PageHeader title={campaign?.name ?? "Campaign Detail"} subtitle={`Status: ${campaign?.status ?? "-"}`} />
+      <PageHeader
+        title={campaign?.name ?? "Campaign Detail"}
+        subtitle={`Status: ${campaign?.status ?? "-"}`}
+        actions={[{ key: "refresh", element: <Button variant="outline" onClick={() => void loadCampaign()} disabled={loading}>Refresh</Button> }]}
+      />
 
       {campaign ? (
         <Card>
@@ -119,6 +144,7 @@ export default function CampaignDetailPage(): JSX.Element {
         <button className={`rounded-[var(--radius-md)] px-3 py-1.5 text-sm ${tab === "PREVIEW" ? "bg-[var(--color-primary)] text-white" : "border border-[var(--color-border)]"}`} onClick={() => setTab("PREVIEW")}>Template Preview</button>
       </div>
 
+      {error ? <p className="text-sm text-red-600">{error}</p> : null}
       {tab === "RECIPIENTS" ? <RecipientTable items={recipients} /> : null}
 
       {tab === "TIMELINE" && campaign ? (

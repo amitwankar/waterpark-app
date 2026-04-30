@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { getIp, logAudit } from "@/lib/audit";
 import { db } from "@/lib/db";
-import { requireAdmin } from "@/lib/session";
+import { requireStaff } from "@/lib/session";
 import { invalidateSettingsCache } from "@/lib/settings";
 
 const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
@@ -22,7 +22,7 @@ function toDateOnly(date: string): Date {
 }
 
 export async function GET(request: NextRequest) {
-  const { error } = await requireAdmin();
+  const { error } = await requireStaff();
   if (error) return error;
 
   const url = new URL(request.url);
@@ -51,7 +51,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const { user, error } = await requireAdmin();
+  const { user, error } = await requireStaff();
   if (error) return error;
 
   const parsed = schema.safeParse(await request.json());

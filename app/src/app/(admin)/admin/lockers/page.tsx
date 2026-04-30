@@ -38,6 +38,7 @@ interface Locker {
   rate: number;
   gstRate: number;
   status: "AVAILABLE" | "ASSIGNED" | "RETURNED" | "MAINTENANCE";
+  isActive: boolean;
   zoneId: string;
   categoryId?: string | null;
   zone: { id: string; name: string };
@@ -60,6 +61,7 @@ export default function AdminLockersPage(): JSX.Element {
   const [zonesError, setZonesError] = useState<string | null>(null);
   const [selectedZone, setSelectedZone] = useState("");
   const [selectedStatus, setSelectedStatus] = useState("");
+  const [selectedActive, setSelectedActive] = useState("all");
   const [showForm, setShowForm] = useState(false);
   const [editingLocker, setEditingLocker] = useState<Locker | null>(null);
   const [formZoneId, setFormZoneId] = useState("");
@@ -119,6 +121,7 @@ export default function AdminLockersPage(): JSX.Element {
       const q = new URLSearchParams();
       if (selectedZone) q.set("zoneId", selectedZone);
       if (selectedStatus) q.set("status", selectedStatus);
+      if (selectedActive) q.set("active", selectedActive);
       const res = await fetch(`/api/v1/lockers?${q.toString()}`);
       if (res.ok) {
         const payload = (await res.json()) as Array<Locker & { rate: number | string; gstRate?: number | string }>;
@@ -359,7 +362,7 @@ export default function AdminLockersPage(): JSX.Element {
   useEffect(() => {
     void loadLockers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedZone, selectedStatus]);
+  }, [selectedZone, selectedStatus, selectedActive]);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -367,7 +370,7 @@ export default function AdminLockersPage(): JSX.Element {
     }, 15000);
     return () => clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedZone, selectedStatus]);
+  }, [selectedZone, selectedStatus, selectedActive]);
 
   const counts = {
     AVAILABLE: lockers.filter((l) => l.status === "AVAILABLE").length,
@@ -426,6 +429,15 @@ export default function AdminLockersPage(): JSX.Element {
             { label: "Assigned", value: "ASSIGNED" },
             { label: "Returned", value: "RETURNED" },
             { label: "Maintenance", value: "MAINTENANCE" },
+          ]}
+        />
+        <Select
+          value={selectedActive}
+          onChange={(e) => setSelectedActive(e.target.value)}
+          options={[
+            { label: "Active Only", value: "1" },
+            { label: "Inactive Only", value: "0" },
+            { label: "All", value: "all" },
           ]}
         />
         <Button variant="outline" onClick={openCreateZone}>
@@ -492,9 +504,12 @@ export default function AdminLockersPage(): JSX.Element {
             >
               <div className="flex items-center justify-between">
                 <span className="font-semibold text-[var(--color-text)]">{locker.number}</span>
-                <Badge variant={STATUS_COLORS[locker.status] as never}>
-                  {locker.status}
-                </Badge>
+                <div className="flex items-center gap-2">
+                  <Badge variant={STATUS_COLORS[locker.status] as never}>
+                    {locker.status}
+                  </Badge>
+                  {!locker.isActive ? <Badge variant="default">INACTIVE</Badge> : null}
+                </div>
               </div>
               <p className="text-xs text-[var(--color-muted)]">
                 {locker.zone.name} · {locker.size}

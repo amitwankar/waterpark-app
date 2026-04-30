@@ -28,6 +28,7 @@ interface DepartmentRow {
 }
 
 export function AddStaffModal({ onClose, onSaved }: Props) {
+  const today = new Date().toISOString().slice(0, 10);
   const [form, setForm] = useState({
     name: "",
     mobile: "",
@@ -37,7 +38,7 @@ export function AddStaffModal({ onClose, onSaved }: Props) {
     subRole: "TICKET_COUNTER",
     employeeCode: "",
     department: "",
-    joiningDate: "",
+    joiningDate: today,
   });
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -69,8 +70,8 @@ export function AddStaffModal({ onClose, onSaved }: Props) {
       setError("Please fill in all required fields.");
       return;
     }
-    if (form.role === "EMPLOYEE" && (!form.employeeCode || !form.joiningDate)) {
-      setError("Employee code and joining date are required for employee users.");
+    if (form.role === "EMPLOYEE" && !form.joiningDate) {
+      setError("Joining date is required for employee users.");
       return;
     }
     setSaving(true);
@@ -131,7 +132,7 @@ export function AddStaffModal({ onClose, onSaved }: Props) {
               options={SUB_ROLES}
             />
             <div className="grid grid-cols-2 gap-4">
-              <Input label="Employee Code *" value={form.employeeCode} onChange={set("employeeCode")} placeholder="WP-EMP-0001" />
+              <Input label="Employee Code" value={form.employeeCode} onChange={set("employeeCode")} placeholder="Auto generated if blank" />
               <Select
                 label="Department"
                 value={form.department}

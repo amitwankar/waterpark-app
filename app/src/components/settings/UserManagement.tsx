@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 
+import { authClient } from "@/lib/auth-client";
 import { useToast } from "@/components/feedback/Toast";
 import { fetchJson } from "@/components/settings/http";
 import { InviteUserDrawer } from "@/components/settings/InviteUserDrawer";
@@ -39,10 +40,10 @@ async function fetchAllUsers(): Promise<UserRow[]> {
       email: string | null;
       subRole: string | null;
       isActive: boolean;
-    }>>("/api/v1/staff"),
+    }>>("/api/v1/staff?role=EMPLOYEE"),
   ]);
 
-  return [
+  const rows = [
     ...admins.map((row) => ({
       id: row.id,
       name: row.name,
@@ -62,10 +63,13 @@ async function fetchAllUsers(): Promise<UserRow[]> {
       isActive: row.isActive,
     })),
   ];
+  return rows.filter((row, idx, arr) => arr.findIndex((x) => x.id === row.id && x.role === row.role) === idx);
 }
 
 export function UserManagement({ initialUsers }: UserManagementProps): JSX.Element {
   const { pushToast } = useToast();
+  const { data: session } = authClient.useSession();
+  const currentUserId = session?.user?.id ?? "";
   const [users, setUsers] = useState<UserRow[]>(initialUsers);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
@@ -100,6 +104,31 @@ export function UserManagement({ initialUsers }: UserManagementProps): JSX.Eleme
       title: user.role === "ADMIN" ? "Admin password updated" : "Staff password updated",
       variant: "success",
     });
+  }
+
+  async function deleteUser(user: UserRow): Promise<void> {
+    if (user.id === currentUserId) {
+      const selfOk = window.confirm("You are deleting your own account. This will immediately remove access. Continue?");
+      if (!selfOk) return;
+    }
+    const ok = window.confirm(`Delete ${user.name} permanently? This cannot be undone.`);
+    if (!ok) return;
+
+    try {
+      const response = await fetch(`/api/v1/staff/${user.id}`, { method: "DELETE" });
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(payload?.error ?? "Could not delete user");
+      }
+      setUsers((prev) => prev.filter((row) => row.id !== user.id));
+      pushToast({ title: "User deleted permanently", variant: "success" });
+    } catch (error: unknown) {
+      pushToast({
+        title: "Delete failed",
+        message: error instanceof Error ? error.message : "Could not delete user",
+        variant: "error",
+      });
+    }
   }
 
   return (
@@ -148,37 +177,60 @@ export function UserManagement({ initialUsers }: UserManagementProps): JSX.Eleme
                       >
                         Change Password
                       </Button>
-                      {user.role === "EMPLOYEE" ? (
-                        <Button
-                          size="sm"
-                          variant={user.isActive ? "danger" : "outline"}
-                          loading={isPending}
-                          onClick={() => {
-                            startTransition(() => {
-                              void fetch(`/api/v1/staff/${user.id}`, {
-                                method: "PUT",
-                                headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({ isActive: !user.isActive }),
+                      <Button
+                        size="sm"
+                        variant={user.isActive ? "danger" : "outline"}
+                        loading={isPending}
+                        onClick={() => {
+                          if (user.isActive) {
+                            if (user.id === currentUserId) {
+                              const selfDeactivate = window.confirm("You are deactivating your own account. You will be logged out and cannot login until reactivated. Continue?");
+                              if (!selfDeactivate) return;
+                            }
+                            const ok = window.confirm(`Deactivate ${user.name}?`);
+                            if (!ok) return;
+                          } else {
+                            const ok = window.confirm(`Activate ${user.name}?`);
+                            if (!ok) return;
+                          }
+                          startTransition(() => {
+                            void fetch(`/api/v1/staff/${user.id}`, {
+                              method: "PUT",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ isActive: !user.isActive }),
+                            })
+                              .then(async (res) => {
+                                if (!res.ok) {
+                                  const payload = (await res.json().catch(() => null)) as { error?: string } | null;
+                                  throw new Error(payload?.error ?? "Could not update user status");
+                                }
+                                setUsers((prev) => prev.map((item) => (item.id === user.id ? { ...item, isActive: !item.isActive } : item)));
                               })
-                                .then((res) => {
-                                  if (!res.ok) throw new Error("Could not update staff status");
-                                  setUsers((prev) => prev.map((item) => (item.id === user.id ? { ...item, isActive: !item.isActive } : item)));
-                                })
-                                .catch((error: unknown) => {
-                                  pushToast({
-                                    title: "Status update failed",
-                                    message: error instanceof Error ? error.message : "Could not update staff status",
-                                    variant: "error",
-                                  });
+                              .catch((error: unknown) => {
+                                pushToast({
+                                  title: "Status update failed",
+                                  message: error instanceof Error ? error.message : "Could not update user status",
+                                  variant: "error",
                                 });
-                            });
-                          }}
-                        >
-                          {user.isActive ? "Deactivate" : "Activate"}
-                        </Button>
-                      ) : (
-                        <span className="text-xs text-[var(--color-text-muted)]">Protected</span>
-                      )}
+                              });
+                          });
+                        }}
+                      >
+                        {user.isActive ? "Deactivate" : "Activate"}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="text-red-600 hover:text-red-700"
+                        onClick={() => {
+                          startTransition(() => {
+                            void deleteUser(user);
+                          });
+                        }}
+                        loading={isPending}
+                      >
+                        Delete
+                      </Button>
                     </div>
                   </td>
                 </tr>

@@ -79,11 +79,20 @@ export async function DELETE(
   if (error) return error;
 
   const { id } = await params;
-
-  await db.foodOutlet.update({
+  const outlet = await db.foodOutlet.findUnique({
     where: { id },
-    data: { isActive: false },
+    include: { _count: { select: { orders: true } } },
   });
+  if (!outlet) {
+    return NextResponse.json({ error: "Outlet not found" }, { status: 404 });
+  }
+  if (outlet._count.orders > 0) {
+    return NextResponse.json(
+      { error: "Cannot permanently delete outlet with existing orders." },
+      { status: 409 },
+    );
+  }
 
+  await db.foodOutlet.delete({ where: { id } });
   return new NextResponse(null, { status: 204 });
 }

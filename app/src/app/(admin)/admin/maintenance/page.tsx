@@ -47,16 +47,21 @@ const STATUS_COLORS: Record<string, string> = {
 export default function MaintenanceDashboardPage() {
   const [summary, setSummary] = useState<MaintenanceSummary | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     async function load() {
       try {
+        setError(null);
         const [assetRes, woRes] = await Promise.all([
-          fetch("/api/v1/maintenance/assets?take=0"),
-          fetch("/api/v1/maintenance/work-orders?take=5&status=OPEN,IN_PROGRESS"),
+          fetch("/api/v1/maintenance/assets?limit=20"),
+          fetch("/api/v1/maintenance/work-orders?limit=5&status=ALL"),
         ]);
-        const assetData = assetRes.ok ? await assetRes.json() : {};
-        const woData = woRes.ok ? await woRes.json() : {};
+        if (!assetRes.ok || !woRes.ok) {
+          throw new Error("Failed to load maintenance dashboard data.");
+        }
+        const assetData = await assetRes.json();
+        const woData = await woRes.json();
 
         setSummary({
           assets: {
@@ -74,6 +79,8 @@ export default function MaintenanceDashboardPage() {
           },
           recentOrders: woData.items ?? [],
         });
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Failed to load maintenance dashboard data.");
       } finally {
         setLoading(false);
       }
@@ -114,6 +121,12 @@ export default function MaintenanceDashboardPage() {
 
       {loading ? (
         <div className="flex justify-center py-16"><Spinner /></div>
+      ) : error ? (
+        <Card>
+          <CardBody>
+            <p className="text-sm text-red-600">{error}</p>
+          </CardBody>
+        </Card>
       ) : (
         <>
           {/* Quick nav cards */}

@@ -94,6 +94,23 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     db.workOrder.count({ where }),
   ]);
 
+  const [openCount, inProgressCount, criticalCount, highPriorityCount, completedTodayCount] = await Promise.all([
+    db.workOrder.count({ where: { isDeleted: false, status: "OPEN" } }),
+    db.workOrder.count({ where: { isDeleted: false, status: "IN_PROGRESS" } }),
+    db.workOrder.count({ where: { isDeleted: false, status: { in: ["OPEN", "IN_PROGRESS"] }, priority: "CRITICAL" } }),
+    db.workOrder.count({ where: { isDeleted: false, status: { in: ["OPEN", "IN_PROGRESS"] }, priority: "HIGH" } }),
+    db.workOrder.count({
+      where: {
+        isDeleted: false,
+        status: "COMPLETED",
+        completedAt: {
+          gte: new Date(new Date().setHours(0, 0, 0, 0)),
+          lt: new Date(new Date().setHours(24, 0, 0, 0)),
+        },
+      },
+    }),
+  ]);
+
   return NextResponse.json({
     items: items.map((item: any) => ({
       ...item,
@@ -106,6 +123,13 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       limit,
       total,
       totalPages: Math.max(1, Math.ceil(total / limit)),
+    },
+    counts: {
+      OPEN: openCount,
+      IN_PROGRESS: inProgressCount,
+      CRITICAL: criticalCount,
+      HIGH: highPriorityCount,
+      completedToday: completedTodayCount,
     },
   });
 }

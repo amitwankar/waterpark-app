@@ -44,6 +44,8 @@ export default function AdminPosBookingsPage(): JSX.Element {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(10);
   const [pagination, setPagination] = useState<BookingListResponse["pagination"]>({
@@ -63,6 +65,8 @@ export default function AdminPosBookingsPage(): JSX.Element {
       });
       if (search.trim()) query.set("search", search.trim());
       if (status) query.set("status", status);
+      if (fromDate) query.set("from", fromDate);
+      if (toDate) query.set("to", toDate);
 
       const response = await fetch(`/api/v1/bookings?${query.toString()}`);
       const payload = (await response.json().catch(() => null)) as BookingListResponse | null;
@@ -80,7 +84,7 @@ export default function AdminPosBookingsPage(): JSX.Element {
   useEffect(() => {
     void loadBookings();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, perPage, status]);
+  }, [page, perPage, status, fromDate, toDate]);
 
   const columns: Array<DataTableColumn<BookingItem>> = [
     {
@@ -148,7 +152,7 @@ export default function AdminPosBookingsPage(): JSX.Element {
         subtitle="Bookings created from POS walk-in flow."
       />
 
-      <div className="grid gap-3 rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4 md:grid-cols-[1fr_220px_auto]">
+      <div className="grid gap-3 rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4 md:grid-cols-[1fr_220px_180px_180px_auto]">
         <Input
           placeholder="Search by booking number, guest, mobile"
           value={search}
@@ -165,6 +169,18 @@ export default function AdminPosBookingsPage(): JSX.Element {
             { label: "COMPLETED", value: "COMPLETED" },
             { label: "CANCELLED", value: "CANCELLED" },
           ]}
+        />
+        <Input
+          label="From Date"
+          type="date"
+          value={fromDate}
+          onChange={(event) => setFromDate(event.target.value)}
+        />
+        <Input
+          label="To Date"
+          type="date"
+          value={toDate}
+          onChange={(event) => setToDate(event.target.value)}
         />
         <Button
           variant="outline"
@@ -199,4 +215,3 @@ export default function AdminPosBookingsPage(): JSX.Element {
     </div>
   );
 }
-

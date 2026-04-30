@@ -183,3 +183,23 @@ export async function PUT(
     },
   });
 }
+
+export async function DELETE(
+  request: NextRequest,
+  context: { params: Promise<{ id: string }> | { id: string } },
+): Promise<NextResponse> {
+  const session = await auth.api.getSession({ headers: request.headers });
+  const role = getRole(session);
+  if (role !== "ADMIN") {
+    return NextResponse.json({ message: "Forbidden" }, { status: 403 });
+  }
+
+  const { id } = await Promise.resolve(context.params);
+  const existing = await db.guestProfile.findUnique({ where: { id }, select: { id: true } });
+  if (!existing) {
+    return NextResponse.json({ message: "Guest not found" }, { status: 404 });
+  }
+
+  await db.guestProfile.delete({ where: { id } });
+  return NextResponse.json({ ok: true });
+}

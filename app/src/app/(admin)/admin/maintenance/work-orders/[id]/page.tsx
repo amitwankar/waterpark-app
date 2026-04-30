@@ -83,7 +83,13 @@ export default function AdminWorkOrderDetailPage(): JSX.Element {
                   onClick={() => {
                     startTransition(() => {
                       void fetch(`/api/v1/maintenance/work-orders/${id}/accept`, { method: "POST" })
-                        .then(() => loadWorkOrder())
+                        .then(async (response) => {
+                          if (!response.ok) {
+                            const body = (await response.json().catch(() => null)) as { message?: string } | null;
+                            throw new Error(body?.message ?? "Accept failed");
+                          }
+                          await loadWorkOrder();
+                        })
                         .catch(() => pushToast({ title: "Accept failed", variant: "error" }));
                     });
                   }}
@@ -122,10 +128,14 @@ export default function AdminWorkOrderDetailPage(): JSX.Element {
                             actualCost: completeCost ? Number(completeCost) : undefined,
                           }),
                         })
-                          .then(() => {
+                          .then(async (response) => {
+                            if (!response.ok) {
+                              const body = (await response.json().catch(() => null)) as { message?: string } | null;
+                              throw new Error(body?.message ?? "Complete failed");
+                            }
                             setCompleteNotes("");
                             setCompleteCost("");
-                            loadWorkOrder();
+                            await loadWorkOrder();
                           })
                           .catch(() => pushToast({ title: "Complete failed", variant: "error" }));
                       });
@@ -148,7 +158,13 @@ export default function AdminWorkOrderDetailPage(): JSX.Element {
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({ reason: "Issue recurred" }),
                       })
-                        .then(() => loadWorkOrder())
+                        .then(async (response) => {
+                          if (!response.ok) {
+                            const body = (await response.json().catch(() => null)) as { message?: string } | null;
+                            throw new Error(body?.message ?? "Reopen failed");
+                          }
+                          await loadWorkOrder();
+                        })
                         .catch(() => pushToast({ title: "Reopen failed", variant: "error" }));
                     });
                   }}
@@ -178,6 +194,38 @@ export default function AdminWorkOrderDetailPage(): JSX.Element {
                   }}
                 >
                   Reactivate Ride
+                </Button>
+              ) : null}
+
+              {workOrder ? (
+                <Button
+                  variant="danger"
+                  className="w-full"
+                  loading={isPending}
+                  onClick={() => {
+                    const ok = window.confirm("Permanently delete this maintenance task? This cannot be undone.");
+                    if (!ok) return;
+                    startTransition(() => {
+                      void fetch(`/api/v1/maintenance/work-orders/${id}`, { method: "DELETE" })
+                        .then(async (response) => {
+                          if (!response.ok) {
+                            const body = (await response.json().catch(() => null)) as { message?: string } | null;
+                            throw new Error(body?.message ?? "Delete failed");
+                          }
+                          pushToast({ title: "Maintenance task deleted permanently", variant: "success" });
+                          router.push("/admin/maintenance/work-orders");
+                        })
+                        .catch((error: unknown) =>
+                          pushToast({
+                            title: "Delete failed",
+                            message: error instanceof Error ? error.message : "Could not delete maintenance task",
+                            variant: "error",
+                          }),
+                        );
+                    });
+                  }}
+                >
+                  Delete Task Permanently
                 </Button>
               ) : null}
             </CardBody>

@@ -28,6 +28,25 @@ const createSchema = z.object({
   joiningDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD").optional(),
 });
 
+async function generateEmployeeCode(): Promise<string> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const latest = await db.staffProfile.findFirst({
+      where: { employeeCode: { startsWith: "WP-EMP-" } },
+      orderBy: { createdAt: "desc" },
+      select: { employeeCode: true },
+    });
+    const match = latest?.employeeCode.match(/WP-EMP-(\d{4,})$/);
+    const nextNum = (match ? Number(match[1]) : 0) + 1;
+    const candidate = `WP-EMP-${String(nextNum).padStart(4, "0")}`;
+    const exists = await db.staffProfile.findUnique({
+      where: { employeeCode: candidate },
+      select: { id: true },
+    });
+    if (!exists) return candidate;
+  }
+  return `WP-EMP-${Date.now().toString().slice(-6)}`;
+}
+
 export async function GET(req: NextRequest) {
   const { error } = await requireAdmin();
   if (error) return error;
@@ -102,9 +121,6 @@ export async function POST(req: NextRequest) {
     if (!subRole) {
       return NextResponse.json({ error: "Sub role is required for employee users" }, { status: 422 });
     }
-    if (!employeeCode?.trim()) {
-      return NextResponse.json({ error: "Employee code is required for employee users" }, { status: 422 });
-    }
     if (!joiningDate) {
       return NextResponse.json({ error: "Joining date is required for employee users" }, { status: 422 });
     }
@@ -144,6 +160,10 @@ export async function POST(req: NextRequest) {
       );
     }
   }
+  const finalEmployeeCode =
+    role === "EMPLOYEE"
+      ? (employeeCode?.trim() || await generateEmployeeCode())
+      : null;
 
   // Hash password via bcrypt (Better Auth convention)
   const { hashPassword } = await import("@/lib/password");
@@ -177,7 +197,7 @@ export async function POST(req: NextRequest) {
           ? {
               staffProfile: {
                 create: {
-                  employeeCode: employeeCode!.trim(),
+                  employeeCode: finalEmployeeCode!,
                   department: department?.trim() || null,
                   joiningDate: new Date(joiningDate!),
                 },

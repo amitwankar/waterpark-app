@@ -80,9 +80,13 @@ export default function CampaignTemplatesPage(): JSX.Element {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ mobile, email: email || undefined }),
           }).then(async (response) => {
-            const payload = (await response.json().catch(() => null)) as { ok?: boolean; message?: string } | null;
+            const payload = (await response.json().catch(() => null)) as { ok?: boolean; message?: string; error?: string } | null;
             if (!response.ok) {
-              pushToast({ title: "Test failed", message: payload?.message ?? "Could not send test", variant: "error" });
+              pushToast({ title: "Test failed", message: payload?.message ?? payload?.error ?? "Could not send test", variant: "error" });
+              return;
+            }
+            if (payload?.ok === false) {
+              pushToast({ title: "Test failed", message: payload?.error ?? "Could not send test", variant: "error" });
               return;
             }
             pushToast({ title: "Test sent", variant: "success" });
@@ -105,7 +109,15 @@ export default function CampaignTemplatesPage(): JSX.Element {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ isActive: next }),
-          }).then(() => loadTemplates());
+          }).then(async (response) => {
+            if (!response.ok) {
+              const payload = (await response.json().catch(() => null)) as { message?: string } | null;
+              pushToast({ title: "Update failed", message: payload?.message ?? "Could not update template", variant: "error" });
+              return;
+            }
+            pushToast({ title: next ? "Template enabled" : "Template disabled", variant: "success" });
+            loadTemplates();
+          });
         }}
       />
 

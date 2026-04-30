@@ -17,7 +17,7 @@ export async function GET() {
     where: { isActive: true },
     orderBy: { name: "asc" },
     include: {
-      _count: { select: { lockers: true } },
+      _count: { select: { lockers: { where: { isActive: true } } } },
     },
   });
 

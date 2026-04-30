@@ -136,13 +136,10 @@ export async function DELETE(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const { user, error } = await requireAdmin();
+  const { error } = await requireAdmin();
   if (error) return error;
 
   const { id } = await params;
-  if (user.id === id) {
-    return NextResponse.json({ error: "You cannot delete your own account" }, { status: 409 });
-  }
 
   const target = await db.user.findFirst({
     where: { id, role: { in: ["EMPLOYEE", "ADMIN"] }, isDeleted: false },

@@ -133,14 +133,32 @@ export async function DELETE(
     return NextResponse.json({ message: "Ride not found" }, { status: 404 });
   }
 
-  await db.ride.update({
-    where: { id },
-    data: {
-      isDeleted: true,
-      deletedAt: new Date(),
-      operatorId: null,
-      status: "CLOSED" as any,
-    },
+  await db.$transaction(async (tx) => {
+    // Remove all maintenance tasks linked to this ride.
+    await tx.workOrder.deleteMany({ where: { rideId: id } });
+
+    // Clean up auto-generated ride maintenance assets and their tasks.
+    const rideAssets = await tx.maintenanceAsset.findMany({
+      where: {
+        OR: [{ serialNumber: `RIDE-${id}` }, { name: `Ride Asset - ${ride.name}` }],
+      },
+      select: { id: true },
+    });
+    const rideAssetIds = rideAssets.map((asset) => asset.id);
+    if (rideAssetIds.length > 0) {
+      await tx.workOrder.deleteMany({ where: { assetId: { in: rideAssetIds } } });
+      await tx.maintenanceAsset.deleteMany({ where: { id: { in: rideAssetIds } } });
+    }
+
+    await tx.ride.update({
+      where: { id },
+      data: {
+        isDeleted: true,
+        deletedAt: new Date(),
+        operatorId: null,
+        status: "CLOSED" as any,
+      },
+    });
   });
 
   return NextResponse.json({ ok: true });

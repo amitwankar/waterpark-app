@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 
 interface SessionOpenerProps {
   terminalId: string;
-  onSessionOpened: (sessionId: string) => void;
+  onSessionOpened: (sessionId: string, staffName?: string) => void;
   exitHref?: string;
 }
 
@@ -34,9 +34,18 @@ export function SessionOpener({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ terminalId, openingCash: amount, notes: notes || undefined }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "Failed to open session");
-      onSessionOpened(data.id);
+      const data = (await res.json()) as {
+        id?: string;
+        staff?: { name?: string };
+        sessionId?: string;
+        error?: string;
+      };
+      if (res.status === 409 && data.sessionId) {
+        onSessionOpened(data.sessionId, "Staff");
+        return;
+      }
+      if (!res.ok || !data.id) throw new Error(data.error ?? "Failed to open session");
+      onSessionOpened(data.id, data.staff?.name);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Unknown error");
     } finally {

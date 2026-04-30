@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 
 import { CampaignTable, type CampaignTableItem } from "@/components/campaigns/CampaignTable";
@@ -19,8 +19,11 @@ export default function AdminCampaignsPage(): JSX.Element {
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<CampaignTableItem[]>([]);
   const [statusTab, setStatusTab] = useState<"ALL" | "DRAFT" | "SCHEDULED" | "SENDING" | "SENT" | "CANCELLED">("ALL");
+  const [error, setError] = useState<string | null>(null);
 
-  async function loadCampaigns(): Promise<void> {
+  const hasLiveCampaign = items.some((row) => row.status === "SENDING");
+
+  const loadCampaigns = useCallback(async (): Promise<void> => {
     setLoading(true);
     try {
       const query = statusTab === "ALL" ? "" : `?status=${statusTab}`;
@@ -28,22 +31,28 @@ export default function AdminCampaignsPage(): JSX.Element {
       const payload = (await response.json().catch(() => ({ items: [] }))) as CampaignListResponse;
       if (response.ok) {
         setItems(payload.items ?? []);
+        setError(null);
+      } else {
+        setError("Could not load campaigns");
       }
+    } catch {
+      setError("Could not load campaigns");
     } finally {
       setLoading(false);
     }
-  }
-
-  useEffect(() => {
-    void loadCampaigns();
   }, [statusTab]);
 
   useEffect(() => {
+    void loadCampaigns();
+  }, [loadCampaigns]);
+
+  useEffect(() => {
+    if (!hasLiveCampaign) return;
     const timer = window.setInterval(() => {
       void loadCampaigns();
     }, 15_000);
     return () => window.clearInterval(timer);
-  }, [statusTab]);
+  }, [hasLiveCampaign, loadCampaigns]);
 
   const tabs = useMemo(() => ["ALL", "DRAFT", "SCHEDULED", "SENDING", "SENT", "CANCELLED"] as const, []);
 
@@ -105,7 +114,7 @@ export default function AdminCampaignsPage(): JSX.Element {
                   throw new Error(payload?.message ?? "Send failed");
                 }
                 pushToast({ title: "Campaign sending started", variant: "success" });
-                loadCampaigns();
+                void loadCampaigns();
               })
               .catch((error: unknown) => {
                 pushToast({
@@ -125,7 +134,7 @@ export default function AdminCampaignsPage(): JSX.Element {
                   throw new Error(payload?.message ?? "Cancel failed");
                 }
                 pushToast({ title: "Campaign cancelled", variant: "info" });
-                loadCampaigns();
+                void loadCampaigns();
               })
               .catch((error: unknown) => {
                 pushToast({
@@ -138,6 +147,7 @@ export default function AdminCampaignsPage(): JSX.Element {
         }}
       />
 
+      {error ? <p className="text-sm text-red-600">{error}</p> : null}
       {isPending ? <p className="text-xs text-[var(--color-text-muted)]">Processing...</p> : null}
     </div>
   );

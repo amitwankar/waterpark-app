@@ -9,6 +9,7 @@ import { WorkOrderTable, type WorkOrderListItem } from "@/components/maintenance
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
+import { useToast } from "@/components/feedback/Toast";
 
 interface WorkOrdersResponse {
   items: WorkOrderListItem[];
@@ -19,6 +20,7 @@ interface AssetsResponse {
 }
 
 export default function AdminWorkOrdersPage(): JSX.Element {
+  const { pushToast } = useToast();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -125,7 +127,30 @@ export default function AdminWorkOrdersPage(): JSX.Element {
         </div>
       </div>
 
-      <WorkOrderTable items={items} loading={loading} />
+      <WorkOrderTable
+        items={items}
+        loading={loading}
+        onDelete={(workOrderId) => {
+          const ok = window.confirm("Permanently delete this maintenance task? This cannot be undone.");
+          if (!ok) return;
+          void fetch(`/api/v1/maintenance/work-orders/${workOrderId}`, { method: "DELETE" })
+            .then(async (response) => {
+              if (!response.ok) {
+                const body = (await response.json().catch(() => null)) as { message?: string } | null;
+                throw new Error(body?.message ?? "Delete failed");
+              }
+              pushToast({ title: "Maintenance task deleted permanently", variant: "success" });
+              await loadData();
+            })
+            .catch((error: unknown) => {
+              pushToast({
+                title: "Delete failed",
+                message: error instanceof Error ? error.message : "Could not delete maintenance task",
+                variant: "error",
+              });
+            });
+        }}
+      />
 
       <WorkOrderDrawer
         open={drawerOpen}

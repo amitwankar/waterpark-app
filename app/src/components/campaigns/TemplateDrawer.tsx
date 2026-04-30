@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 
 import { Button } from "@/components/ui/Button";
 import { Drawer } from "@/components/ui/Drawer";
@@ -40,6 +40,7 @@ export function TemplateDrawer({ open, onClose, initial, onSaved }: TemplateDraw
   const [channel, setChannel] = useState<"SMS" | "WHATSAPP" | "EMAIL">(initial?.channel ?? "SMS");
   const [subject, setSubject] = useState(initial?.subject ?? "");
   const [body, setBody] = useState(initial?.body ?? "");
+  const [error, setError] = useState<string | null>(null);
 
   const variables = useMemo(() => detectVariables(body), [body]);
   const smsChars = body.length;
@@ -50,7 +51,17 @@ export function TemplateDrawer({ open, onClose, initial, onSaved }: TemplateDraw
     setChannel(initial?.channel ?? "SMS");
     setSubject(initial?.subject ?? "");
     setBody(initial?.body ?? "");
+    setError(null);
   }
+
+  useEffect(() => {
+    if (!open) return;
+    setName(initial?.name ?? "");
+    setChannel(initial?.channel ?? "SMS");
+    setSubject(initial?.subject ?? "");
+    setBody(initial?.body ?? "");
+    setError(null);
+  }, [open, initial]);
 
   return (
     <Drawer open={open} onClose={onClose} title={initial?.id ? "Edit Template" : "New Template"} widthClassName="w-full max-w-2xl">
@@ -76,11 +87,19 @@ export function TemplateDrawer({ open, onClose, initial, onSaved }: TemplateDraw
                 variables,
                 isActive: true,
               }),
-            }).then(() => {
-              reset();
-              onClose();
-              onSaved?.();
-            });
+            })
+              .then(async (response) => {
+                if (!response.ok) {
+                  const payload = (await response.json().catch(() => null)) as { message?: string } | null;
+                  throw new Error(payload?.message ?? "Failed to save template");
+                }
+                reset();
+                onClose();
+                onSaved?.();
+              })
+              .catch((err: unknown) => {
+                setError(err instanceof Error ? err.message : "Failed to save template");
+              });
           });
         }}
       >
@@ -139,6 +158,7 @@ export function TemplateDrawer({ open, onClose, initial, onSaved }: TemplateDraw
         <Button type="submit" loading={isPending} className="w-full">
           {initial?.id ? "Save Template" : "Create Template"}
         </Button>
+        {error ? <p className="text-xs text-red-600">{error}</p> : null}
       </form>
     </Drawer>
   );

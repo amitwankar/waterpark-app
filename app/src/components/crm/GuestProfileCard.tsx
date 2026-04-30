@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 
 import { TagChips } from "@/components/crm/TagChips";
 import { TierBadge } from "@/components/crm/TierBadge";
@@ -25,15 +26,17 @@ export interface GuestProfileCardProps {
 }
 
 export function GuestProfileCard({ guest }: GuestProfileCardProps): JSX.Element {
+  const router = useRouter();
   const [name, setName] = useState(guest.name);
   const [email, setEmail] = useState(guest.email ?? "");
   const [notes, setNotes] = useState(guest.notes ?? "");
   const [tags, setTags] = useState<string[]>(guest.tags);
   const [isPending, startTransition] = useTransition();
   const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   async function saveProfile(next: { name?: string; email?: string; notes?: string; tags?: string[] }): Promise<void> {
-    await fetch(`/api/v1/crm/guests/${guest.id}`, {
+    const response = await fetch(`/api/v1/crm/guests/${guest.id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -43,15 +46,24 @@ export function GuestProfileCard({ guest }: GuestProfileCardProps): JSX.Element 
         tags: next.tags ?? tags,
       }),
     });
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as { message?: string } | null;
+      throw new Error(payload?.message ?? "Failed to update guest profile");
+    }
   }
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
       startTransition(() => {
-        void saveProfile({ notes }).then(() => {
-          setSaved(true);
-          window.setTimeout(() => setSaved(false), 1200);
-        });
+        void saveProfile({ notes })
+          .then(() => {
+            setSaved(true);
+            setError(null);
+            window.setTimeout(() => setSaved(false), 1200);
+          })
+          .catch((err: unknown) => {
+            setError(err instanceof Error ? err.message : "Failed to save notes");
+          });
       });
     }, 900);
 
@@ -84,7 +96,10 @@ export function GuestProfileCard({ guest }: GuestProfileCardProps): JSX.Element 
             startTransition(() => {
               void saveProfile({ name, email, tags }).then(() => {
                 setSaved(true);
+                setError(null);
                 window.setTimeout(() => setSaved(false), 1200);
+              }).catch((err: unknown) => {
+                setError(err instanceof Error ? err.message : "Failed to save profile");
               });
             });
           }}
@@ -136,6 +151,31 @@ export function GuestProfileCard({ guest }: GuestProfileCardProps): JSX.Element 
             placeholder="Internal notes"
           />
           <p className="text-xs text-[var(--color-text-muted)]">{saved ? "Saved" : "Auto-saves after typing"}</p>
+        </div>
+        <div className="space-y-2">
+          <Button
+            variant="danger"
+            onClick={() => {
+              if (!window.confirm("Delete this guest profile permanently?")) return;
+              startTransition(() => {
+                void fetch(`/api/v1/crm/guests/${guest.id}`, { method: "DELETE" })
+                  .then(async (response) => {
+                    if (!response.ok) {
+                      const payload = (await response.json().catch(() => null)) as { message?: string } | null;
+                      throw new Error(payload?.message ?? "Failed to delete guest");
+                    }
+                    router.push("/admin/crm/guests");
+                  })
+                  .catch((err: unknown) => {
+                    setError(err instanceof Error ? err.message : "Failed to delete guest");
+                  });
+              });
+            }}
+            loading={isPending}
+          >
+            Delete Guest Profile
+          </Button>
+          {error ? <p className="text-xs text-red-600">{error}</p> : null}
         </div>
       </CardBody>
     </Card>

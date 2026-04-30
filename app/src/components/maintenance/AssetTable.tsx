@@ -1,5 +1,3 @@
-import Link from "next/link";
-
 import { DataTable, type DataTableColumn } from "@/components/layout/DataTable";
 import { Button } from "@/components/ui/Button";
 import { ServiceStatusBadge } from "@/components/maintenance/ServiceStatusBadge";
@@ -71,11 +69,12 @@ export function AssetTable({ items, loading, onService }: AssetTableProps): JSX.
           <Button size="sm" variant="outline" onClick={() => onService(row.id)}>
             Service
           </Button>
-          <Link href={`/admin/maintenance/assets/${row.id}`}>
-            <Button size="sm" variant="ghost">
-              View
-            </Button>
-          </Link>
+          <a
+            href={`/admin/maintenance/assets/${row.id}`}
+            className="inline-flex h-8 items-center justify-center rounded-[var(--radius-md)] bg-transparent px-3 text-sm font-medium text-[var(--color-text)] transition-all duration-150 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+          >
+            View
+          </a>
         </div>
       ),
     },

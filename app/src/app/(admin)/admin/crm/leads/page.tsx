@@ -20,6 +20,8 @@ interface LeadsPageProps {
         search?: string;
         stage?: string;
         source?: string;
+        assigneeId?: string;
+        type?: string;
         followUpDue?: "1" | "0";
       }>
     | {
@@ -27,6 +29,8 @@ interface LeadsPageProps {
         search?: string;
         stage?: string;
         source?: string;
+        assigneeId?: string;
+        type?: string;
         followUpDue?: "1" | "0";
       };
 }
@@ -58,11 +62,13 @@ async function getAnalyticsCached(): Promise<{
   };
 }
 
-function buildViewHref(params: { search?: string; stage?: string; source?: string; followUpDue?: string }, view: "kanban" | "table"): string {
+function buildViewHref(params: { search?: string; stage?: string; source?: string; assigneeId?: string; type?: string; followUpDue?: string }, view: "kanban" | "table"): string {
   const qs = new URLSearchParams();
   if (params.search) qs.set("search", params.search);
   if (params.stage) qs.set("stage", params.stage);
   if (params.source) qs.set("source", params.source);
+  if (params.assigneeId) qs.set("assigneeId", params.assigneeId);
+  if (params.type) qs.set("type", params.type);
   if (params.followUpDue) qs.set("followUpDue", params.followUpDue);
   qs.set("view", view);
   return `/admin/crm/leads?${qs.toString()}`;
@@ -76,6 +82,7 @@ export default async function CrmLeadsPage({ searchParams }: LeadsPageProps): Pr
     isDeleted: false,
     ...(params.stage ? { stage: params.stage } : {}),
     ...(params.source ? { source: params.source } : {}),
+    ...(params.assigneeId ? { assignedToId: params.assigneeId } : {}),
     ...(params.search
       ? {
           OR: [
@@ -129,6 +136,10 @@ export default async function CrmLeadsPage({ searchParams }: LeadsPageProps): Pr
     };
   });
 
+  const filteredLeadRows = params.type
+    ? leadRows.filter((lead) => (lead.type ?? "") === params.type)
+    : leadRows;
+
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -141,7 +152,7 @@ export default async function CrmLeadsPage({ searchParams }: LeadsPageProps): Pr
 
       <Card>
         <CardBody className="space-y-3">
-          <form action="/admin/crm/leads" method="get" className="grid gap-3 lg:grid-cols-5">
+          <form action="/admin/crm/leads" method="get" className="grid gap-3 lg:grid-cols-7">
             <input type="hidden" name="view" value={view} />
             <Input name="search" defaultValue={params.search} placeholder="Search lead" />
             <Select
@@ -171,6 +182,23 @@ export default async function CrmLeadsPage({ searchParams }: LeadsPageProps): Pr
                 { label: "EVENT", value: "EVENT" },
               ]}
             />
+            <Select
+              name="assigneeId"
+              defaultValue={params.assigneeId ?? ""}
+              placeholder="All assignees"
+              options={assignees.map((row) => ({ label: row.name, value: row.id }))}
+            />
+            <Select
+              name="type"
+              defaultValue={params.type ?? ""}
+              placeholder="All types"
+              options={[
+                { label: "INDIVIDUAL", value: "INDIVIDUAL" },
+                { label: "GROUP", value: "GROUP" },
+                { label: "CORPORATE", value: "CORPORATE" },
+                { label: "SCHOOL", value: "SCHOOL" },
+              ]}
+            />
             <Select name="followUpDue" defaultValue={params.followUpDue ?? "0"} options={[{ label: "All", value: "0" }, { label: "Due only", value: "1" }]} />
             <Button type="submit">Apply</Button>
           </form>
@@ -188,7 +216,7 @@ export default async function CrmLeadsPage({ searchParams }: LeadsPageProps): Pr
 
       {view === "kanban" ? (
         <LeadKanban
-          leads={leadRows.map((lead: any) => ({
+          leads={filteredLeadRows.map((lead: any) => ({
             id: lead.id,
             name: lead.name,
             mobile: lead.mobile,
@@ -201,7 +229,7 @@ export default async function CrmLeadsPage({ searchParams }: LeadsPageProps): Pr
           assignees={assignees}
         />
       ) : (
-        <LeadTable rows={leadRows as any} assignees={assignees} />
+        <LeadTable rows={filteredLeadRows as any} assignees={assignees} />
       )}
 
       <FollowUpDueCard count={analytics.dueCount} overdueMoreThanOneDay={analytics.overdue} />

@@ -3,19 +3,24 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireAdmin } from "@/lib/session";
 
+const nullableInt = z.preprocess(
+  (value) => (value === "" || value === undefined ? undefined : value),
+  z.number().int().nullable().optional(),
+);
+
 const createSchema = z.object({
   name: z.string().min(1).max(120),
-  description: z.string().max(500).optional(),
+  description: z.string().max(500).optional().nullable(),
   category: z.string().min(1).max(60).default("General"),
-  price: z.number().min(0),
-  gstRate: z.number().min(0).max(100).default(18),
-  minAge: z.number().int().min(0).nullable().default(null),
-  maxAge: z.number().int().min(0).nullable().default(null),
-  maxPerBooking: z.number().int().min(1).nullable().default(10),
-  validDays: z.number().int().min(1).default(1),
-  sortOrder: z.number().int().min(0).default(0),
-  imageUrl: z.string().url().optional(),
-  rideId: z.string().cuid().nullable().optional(),
+  price: z.coerce.number().min(0),
+  gstRate: z.coerce.number().min(0).max(100).default(18),
+  minAge: z.coerce.number().int().min(0).nullable().optional().default(null),
+  maxAge: z.coerce.number().int().min(0).nullable().optional().default(null),
+  maxPerBooking: nullableInt.default(10),
+  validDays: z.coerce.number().int().min(1).default(1),
+  sortOrder: z.coerce.number().int().min(0).default(0),
+  imageUrl: z.string().url().optional().nullable(),
+  rideId: z.preprocess((value) => (value === "" ? null : value), z.string().cuid().nullable().optional()),
 });
 
 export async function GET(req: NextRequest) {
@@ -45,9 +50,13 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = createSchema.parse(await req.json());
+    if (body.maxPerBooking !== null && body.maxPerBooking !== undefined && body.maxPerBooking < 1) {
+      return NextResponse.json({ error: "maxPerBooking must be at least 1 or null for unlimited" }, { status: 422 });
+    }
     const type = await db.ticketType.create({
       data: {
         ...body,
+        description: body.description ?? null,
         price: body.price,
         gstRate: body.gstRate,
       },

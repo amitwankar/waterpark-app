@@ -108,6 +108,10 @@ export async function DELETE(
   if (error) return error;
 
   const { id } = await params;
+  const locker = await db.locker.findUnique({ where: { id }, select: { id: true, number: true } });
+  if (!locker) {
+    return NextResponse.json({ error: "Locker not found" }, { status: 404 });
+  }
   const activeAssignments = await db.lockerAssignment.count({
     where: {
       lockerId: id,
@@ -118,12 +122,28 @@ export async function DELETE(
     return NextResponse.json({ error: "Cannot delete locker with active assignment" }, { status: 409 });
   }
 
-  await db.locker.update({
-    where: { id },
-    data: {
-      isActive: false,
-      status: "MAINTENANCE",
-    },
+  await db.$transaction(async (tx) => {
+    // Keep locker soft-deleted in business data.
+    await tx.locker.update({
+      where: { id },
+      data: {
+        isActive: false,
+        status: "MAINTENANCE",
+      },
+    });
+
+    // Remove linked maintenance entities if they exist for this locker.
+    const lockerAssets = await tx.maintenanceAsset.findMany({
+      where: {
+        OR: [{ serialNumber: `LOCKER-${id}` }, { serialNumber: `LOCKER-${locker.number}` }],
+      },
+      select: { id: true },
+    });
+    const lockerAssetIds = lockerAssets.map((asset) => asset.id);
+    if (lockerAssetIds.length > 0) {
+      await tx.workOrder.deleteMany({ where: { assetId: { in: lockerAssetIds } } });
+      await tx.maintenanceAsset.deleteMany({ where: { id: { in: lockerAssetIds } } });
+    }
   });
   return NextResponse.json({ ok: true });
 }

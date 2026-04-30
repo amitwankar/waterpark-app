@@ -117,3 +117,22 @@ export async function PUT(
     },
   });
 }
+
+export async function DELETE(
+  request: NextRequest,
+  context: { params: Promise<{ id: string }> | { id: string } },
+): Promise<NextResponse> {
+  const user = await getSessionUser(request.headers);
+  if (!requireAdminOrEmployee(user) || user?.role !== "ADMIN") {
+    return NextResponse.json({ message: "Forbidden" }, { status: 403 });
+  }
+
+  const { id } = await Promise.resolve(context.params);
+  const existing = await db.workOrder.findFirst({ where: { id, isDeleted: false }, select: { id: true } });
+  if (!existing) {
+    return NextResponse.json({ message: "Work order not found" }, { status: 404 });
+  }
+
+  await db.workOrder.delete({ where: { id } });
+  return NextResponse.json({ ok: true });
+}
