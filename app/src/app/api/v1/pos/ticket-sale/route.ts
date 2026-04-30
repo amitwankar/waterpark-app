@@ -36,13 +36,13 @@ const paymentLineSchema = z.object({
 const foodLineSchema = z.object({
   foodItemId: z.string().min(1),
   foodVariantId: z.string().min(1).optional(),
-  quantity: z.number().int().min(1).max(20),
+  quantity: z.number().int().min(1),
 });
 
 const lockerLineSchema = z.object({
   lockerCategoryId: z.string().min(1).optional(),
   lockerId: z.string().min(1).optional(), // legacy fallback
-  quantity: z.number().int().min(1).max(200).optional(),
+  quantity: z.number().int().min(1).optional(),
   amount: z.number().nonnegative().optional(), // legacy fallback
 });
 
@@ -53,12 +53,12 @@ const costumeLineSchema = z.object({
 
 const rideLineSchema = z.object({
   rideId: z.string().min(1),
-  quantity: z.number().int().min(1).max(50),
+  quantity: z.number().int().min(1),
 });
 
 const packageLineSchema = z.object({
   packageId: z.string().min(1),
-  quantity: z.number().int().min(1).max(50),
+  quantity: z.number().int().min(1),
 });
 
 const participantSchema = z.object({
@@ -91,7 +91,7 @@ const saleSchema = z.object({
   manualDiscountAmount: z.number().min(0).optional(),
   issueCouponTemplateId: z.string().min(1).optional(),
   issueCouponValidityHours: z.number().int().min(1).max(24 * 90).optional(),
-  participants: z.array(participantSchema).max(100).optional(),
+  participants: z.array(participantSchema).optional(),
   paymentLines: z.array(paymentLineSchema).min(1),
   notes: z.string().optional(),
 });

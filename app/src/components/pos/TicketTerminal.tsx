@@ -131,6 +131,15 @@ function normalizeTagBase(tagNumber: string): string {
   return tagNumber.trim().toUpperCase().replace(/-\d{3}$/i, "");
 }
 
+function getTodayDateInIst(): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+}
+
 export function TicketTerminal({
   sessionId,
   terminalId,
@@ -146,7 +155,7 @@ export function TicketTerminal({
   const [idProofType, setIdProofType] = useState<IdProofType>("AADHAAR");
   const [idProofNumber, setIdProofNumber] = useState("");
   const [idProofLabel, setIdProofLabel] = useState("");
-  const [visitDate, setVisitDate] = useState(new Date().toISOString().slice(0, 10));
+  const [visitDate, setVisitDate] = useState(getTodayDateInIst());
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [receiptRef, setReceiptRef] = useState<string | null>(null);
@@ -605,13 +614,15 @@ export function TicketTerminal({
     setSubmitting(true);
     setError(null);
     try {
+      const todayVisitDate = getTodayDateInIst();
+      setVisitDate(todayVisitDate);
       const res = await fetch("/api/v1/pos/ticket-sale", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           idempotencyKey: crypto.randomUUID(),
           sessionId,
-          visitDate,
+          visitDate: todayVisitDate,
           guestName: guestName.trim() || "Guest",
           guestMobile: guestMobile.trim(),
           guestEmail: guestEmail.trim() || undefined,
@@ -668,28 +679,7 @@ export function TicketTerminal({
         throw new Error(issuePath && issueMessage ? `${issuePath}: ${issueMessage}` : issueMessage ?? fallbackMessage);
       }
       setReceiptRef(data.bookingId ?? null);
-      cart.clearCart();
-      setGuestName("");
-      setGuestMobile("");
-      setGuestEmail("");
-      setNotes("");
-      setIdProofNumber("");
-      setIdProofLabel("");
-      setLinkedBookingNumber(null);
-      setLinkedBookingId(null);
-      setLinkedQueueRequestId(null);
-      setLinkedSourcePaidAmount(0);
-      setPackageLines([]);
-      setFoodLines([]);
-      setLockerLines([]);
-      setCostumeLines([]);
-      setRideLines([]);
-      setManualDiscountAmount(0);
-      setIssueCouponTemplateId("");
-      setIssueCouponValidityHours("24");
-      setSourcePickerOpen(null);
-      setSourcePickerQuery("");
-      setSourcePickerItems([]);
+      resetPosForm();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Unknown error");
     } finally {
@@ -781,6 +771,41 @@ export function TicketTerminal({
     ? Math.round((selectedBooking.balance - balanceSplitTotal) * 100) / 100
     : 0;
 
+  function resetPosForm(): void {
+    cart.clearCart();
+    setGuestName("");
+    setGuestMobile("");
+    setGuestEmail("");
+    setNotes("");
+    setIdProofType("AADHAAR");
+    setIdProofNumber("");
+    setIdProofLabel("");
+    setVisitDate(getTodayDateInIst());
+    setLinkedBookingNumber(null);
+    setLinkedBookingId(null);
+    setLinkedQueueRequestId(null);
+    setLinkedSourcePaidAmount(0);
+    setPackageLines([]);
+    setFoodLines([]);
+    setLockerLines([]);
+    setCostumeLines([]);
+    setRideLines([]);
+    setPackageQty("1");
+    setFoodQty("1");
+    setLockerQty("1");
+    setCostumeQty("1");
+    setRideQty("1");
+    setManualDiscountAmount(0);
+    setSelectedCouponCode("");
+    setIssueCouponTemplateId("");
+    setIssueCouponValidityHours("24");
+    setSourcePickerOpen(null);
+    setSourcePickerQuery("");
+    setSourcePickerItems([]);
+    setAddOnError(null);
+    setError(null);
+  }
+
   function applyImportedBooking(booking: LookupBooking, mode: "replace" | "merge"): void {
     if (mode === "replace") {
       cart.clearCart();
@@ -796,7 +821,7 @@ export function TicketTerminal({
 
     setGuestName((prev) => (mode === "replace" || !prev ? booking.guestName || "" : prev));
     setGuestMobile((prev) => (mode === "replace" || !prev ? booking.guestMobile || "" : prev));
-    setVisitDate((prev) => (mode === "replace" || !prev ? (booking.visitDate || prev) : prev));
+    setVisitDate(getTodayDateInIst());
     setLinkedBookingNumber(booking.bookingNumber);
     setLinkedQueueRequestId(booking.sourceType === "QUEUE" ? booking.id : null);
     setLinkedBookingId(booking.sourceType === "BOOKING" ? booking.id : null);
@@ -1374,7 +1399,8 @@ export function TicketTerminal({
                       type="date"
                       title="Visit date"
                       value={visitDate}
-                      onChange={(e) => setVisitDate(e.target.value)}
+                      readOnly
+                      disabled
                       className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
                     />
                   </div>
@@ -2021,24 +2047,11 @@ export function TicketTerminal({
                   <button
                     type="button"
                     onClick={() => {
-                      cart.clearCart();
-                      setPackageLines([]);
-                      setFoodLines([]);
-                      setLockerLines([]);
-                      setCostumeLines([]);
-                      setRideLines([]);
-                      setManualDiscountAmount(0);
-                      setLinkedBookingNumber(null);
-                      setLinkedBookingId(null);
-                      setLinkedQueueRequestId(null);
-                      setLinkedSourcePaidAmount(0);
-                      setSelectedCouponCode("");
-                      setIssueCouponTemplateId("");
-                      setIssueCouponValidityHours("24");
+                      resetPosForm();
                     }}
                     className="w-full text-xs text-gray-400 hover:text-red-500 py-1"
                   >
-                    Clear cart
+                    Reset form
                   </button>
                 )}
               </div>

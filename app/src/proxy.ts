@@ -69,6 +69,9 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
   const requestId = request.headers.get("x-request-id") ?? crypto.randomUUID();
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set("x-request-id", requestId);
+  if (pathname === "/queue") {
+    requestHeaders.set("x-allow-website-disabled", "1");
+  }
 
   if (pathname === "/auth/login") {
     return withSecurityHeaders(NextResponse.redirect(new URL("/login", request.url)), requestId);
