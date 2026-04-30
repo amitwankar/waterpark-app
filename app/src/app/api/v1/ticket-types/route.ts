@@ -19,7 +19,6 @@ const createSchema = z.object({
   maxPerBooking: nullableInt.default(10),
   validDays: z.coerce.number().int().min(1).default(1),
   sortOrder: z.coerce.number().int().min(0).default(0),
-  imageUrl: z.string().url().optional().nullable(),
   rideId: z.preprocess((value) => (value === "" ? null : value), z.string().cuid().nullable().optional()),
 });
 
@@ -66,7 +65,6 @@ export async function POST(req: NextRequest) {
         maxPerBooking: body.maxPerBooking ?? null,
         validDays: body.validDays,
         sortOrder: body.sortOrder,
-        imageUrl: body.imageUrl ?? null,
       },
       include: {
         ride: {

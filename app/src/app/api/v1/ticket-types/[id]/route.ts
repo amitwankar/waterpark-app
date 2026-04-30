@@ -19,7 +19,6 @@ const patchSchema = z.object({
   maxPerBooking: nullableInt,
   validDays: z.coerce.number().int().min(1).optional(),
   sortOrder: z.coerce.number().int().min(0).optional(),
-  imageUrl: z.string().url().nullable().optional(),
   isActive: z.coerce.boolean().optional(),
   rideId: z.preprocess((value) => (value === "" ? null : value), z.string().cuid().nullable().optional()),
 });
