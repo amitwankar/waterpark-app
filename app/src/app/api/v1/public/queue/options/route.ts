@@ -55,7 +55,19 @@ export async function GET() {
     db.salesPackage.findMany({
       where: { isDeleted: false, isActive: true },
       orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
-      select: { id: true, name: true, listedPrice: true, salePrice: true, gstRate: true },
+      include: {
+        items: {
+          orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+          include: {
+            ticketType: { select: { name: true } },
+            ride: { select: { name: true } },
+            costumeItem: { select: { name: true } },
+            foodItem: { select: { name: true } },
+            foodVariant: { select: { name: true } },
+            locker: { select: { number: true } },
+          },
+        },
+      },
     }),
     db.foodItem.findMany({
       where: { isDeleted: false, isAvailable: true },
@@ -163,6 +175,17 @@ export async function GET() {
       listedPrice: Number(p.listedPrice),
       salePrice: Number(p.salePrice),
       gstRate: Number(p.gstRate ?? 0),
+      items: p.items.map((item) => ({
+        itemType: item.itemType,
+        quantity: item.quantity,
+        label:
+          item.ticketType?.name ??
+          item.ride?.name ??
+          (item.foodVariant ? `${item.foodItem?.name ?? "Food"} · ${item.foodVariant.name}` : item.foodItem?.name) ??
+          item.costumeItem?.name ??
+          item.locker?.number ??
+          item.itemType,
+      })),
     })),
     foodOptions,
     lockerProducts,

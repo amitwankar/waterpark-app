@@ -10,7 +10,14 @@ import { Badge } from "@/components/ui/Badge";
 import { formatCurrency } from "@/lib/utils";
 
 type TicketOption = { id: string; name: string; price: number; gstRate: number };
-type PackageOption = { id: string; name: string; listedPrice: number; salePrice: number; gstRate: number };
+type PackageOption = {
+  id: string;
+  name: string;
+  listedPrice: number;
+  salePrice: number;
+  gstRate: number;
+  items: Array<{ itemType: string; quantity: number; label: string }>;
+};
 type FoodOption = { id: string; foodItemId: string; foodVariantId?: string; name: string; variantName?: string; price: number; gstRate: number };
 type LockerProduct = { lockerCategoryId: string; label: string; rate: number; gstRate: number };
 type CostumeGroup = { costumeItemId: string; label: string; rentalRate: number; gstRate: number; availableQuantity: number };
@@ -80,8 +87,8 @@ export default function PublicQueuePage(): JSX.Element {
   const [emailOtpProofToken, setEmailOtpProofToken] = useState<string | null>(null);
   const [smsOtpProofToken, setSmsOtpProofToken] = useState<string | null>(null);
 
-  const [ticketLines, setTicketLines] = useState<Array<{ ticketTypeId: string; quantity: string }>>([{ ticketTypeId: "", quantity: "1" }]);
-  const [packageLines, setPackageLines] = useState<Array<{ packageId: string; quantity: string }>>([]);
+  const [ticketLines, setTicketLines] = useState<Array<{ ticketTypeId: string; quantity: string }>>([]);
+  const [packageLines, setPackageLines] = useState<Array<{ packageId: string; quantity: string }>>([{ packageId: "", quantity: "1" }]);
   const [foodLines, setFoodLines] = useState<Array<{ optionId: string; quantity: string }>>([]);
   const [lockerLines, setLockerLines] = useState<Array<{ lockerCategoryId: string; quantity: string }>>([]);
   const [costumeLines, setCostumeLines] = useState<Array<{ costumeItemId: string; quantity: string }>>([]);
@@ -238,11 +245,12 @@ export default function PublicQueuePage(): JSX.Element {
   const smsRequired = modeNeedsSms(verificationMode);
   const mobileValid = /^[6-9]\d{9}$/.test(guestMobile.trim());
   const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(guestEmail.trim());
+  const hasValidPackage = packageLines.some((l) => l.packageId !== "");
   const canSubmitQueue =
     guestName.trim().length > 0 &&
     mobileValid &&
     emailValid &&
-    totals.total > 0 &&
+    hasValidPackage &&
     (!emailRequired || emailVerified) &&
     (!smsRequired || smsVerified);
 
@@ -553,81 +561,92 @@ export default function PublicQueuePage(): JSX.Element {
 
           <Card>
             <CardHeader>
-              <h2 className="text-lg font-semibold text-[var(--color-text)]">Select Tickets</h2>
+              <h2 className="text-lg font-semibold text-[var(--color-text)]">Select Package *</h2>
             </CardHeader>
             <CardBody className="space-y-3">
-              {ticketLines.map((line, index) => (
-                <div key={`t-${index}`} className="grid gap-3 md:grid-cols-[1fr_140px_auto] items-end">
-                  <Select
-                    label="Ticket type"
-                    value={line.ticketTypeId}
-                    onChange={(event) => {
-                      const next = [...ticketLines];
-                      next[index] = { ...next[index]!, ticketTypeId: event.target.value };
-                      setTicketLines(next);
-                    }}
-                    options={[
-                      { label: "Select ticket", value: "" },
-                      ...(options?.tickets ?? []).map((t) => ({ label: `${t.name} (${formatCurrency(t.price)})`, value: t.id })),
-                    ]}
-                  />
-                  <Input
-                    label="Qty"
-                    type="number"
-                    min={1}
-                    value={line.quantity}
-                    onChange={(event) => {
-                      const next = [...ticketLines];
-                      next[index] = { ...next[index]!, quantity: event.target.value };
-                      setTicketLines(next);
-                    }}
-                  />
-                  <Button
-                    variant="outline"
-                    onClick={() => setTicketLines((prev) => prev.filter((_, i) => i !== index))}
-                    disabled={ticketLines.length === 1}
-                  >
-                    Remove
-                  </Button>
-                </div>
-              ))}
-              <Button variant="outline" onClick={() => setTicketLines((prev) => [...prev, { ticketTypeId: "", quantity: "1" }])}>
-                Add Ticket Line
+              {packageLines.map((line, index) => {
+                const selectedPkg = (options?.packages ?? []).find((p) => p.id === line.packageId);
+                return (
+                  <div key={`p-${index}`} className="space-y-2">
+                    <div className="grid gap-3 md:grid-cols-[1fr_140px_auto] items-end">
+                      <Select
+                        label="Package"
+                        value={line.packageId}
+                        onChange={(event) => {
+                          const next = [...packageLines];
+                          next[index] = { ...next[index]!, packageId: event.target.value };
+                          setPackageLines(next);
+                        }}
+                        options={[
+                          { label: "Select package", value: "" },
+                          ...(options?.packages ?? []).map((p) => ({ label: `${p.name} (${formatCurrency(p.salePrice)})`, value: p.id })),
+                        ]}
+                      />
+                      <Input label="Qty" type="number" min={1} value={line.quantity} onChange={(e) => {
+                        const next = [...packageLines];
+                        next[index] = { ...next[index]!, quantity: e.target.value };
+                        setPackageLines(next);
+                      }} />
+                      <Button
+                        variant="outline"
+                        onClick={() => setPackageLines((prev) => prev.filter((_, i) => i !== index))}
+                        disabled={packageLines.length === 1}
+                      >
+                        Remove
+                      </Button>
+                    </div>
+                    {selectedPkg && selectedPkg.items.length > 0 && (
+                      <div className="rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface-muted,var(--color-surface))] px-3 py-2">
+                        <p className="text-xs font-semibold text-[var(--color-text-muted)] mb-1.5">What&apos;s included:</p>
+                        <div className="flex flex-wrap gap-x-4 gap-y-1">
+                          {selectedPkg.items.map((item, i) => (
+                            <span key={i} className="text-xs text-[var(--color-text)]">
+                              {item.quantity > 1 ? `${item.quantity}× ` : ""}{item.label}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              <Button variant="outline" onClick={() => setPackageLines((prev) => [...prev, { packageId: "", quantity: "1" }])}>
+                Add Package Line
               </Button>
             </CardBody>
           </Card>
 
           <Card>
             <CardHeader>
-              <h2 className="text-lg font-semibold text-[var(--color-text)]">Add-ons (Same Checkout)</h2>
+              <h2 className="text-lg font-semibold text-[var(--color-text)]">Add-ons (Optional)</h2>
             </CardHeader>
             <CardBody className="space-y-5">
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-[var(--color-text)]">Packages</h3>
-                  <Button variant="outline" onClick={() => setPackageLines((prev) => [...prev, { packageId: "", quantity: "1" }])}>Add</Button>
+                  <h3 className="text-sm font-semibold text-[var(--color-text)]">Tickets</h3>
+                  <Button variant="outline" onClick={() => setTicketLines((prev) => [...prev, { ticketTypeId: "", quantity: "1" }])}>Add</Button>
                 </div>
-                {packageLines.map((line, index) => (
-                  <div key={`p-${index}`} className="grid gap-3 md:grid-cols-[1fr_140px_auto] items-end">
+                {ticketLines.map((line, index) => (
+                  <div key={`t-${index}`} className="grid gap-3 md:grid-cols-[1fr_140px_auto] items-end">
                     <Select
-                      label="Package"
-                      value={line.packageId}
+                      label="Ticket type"
+                      value={line.ticketTypeId}
                       onChange={(event) => {
-                        const next = [...packageLines];
-                        next[index] = { ...next[index]!, packageId: event.target.value };
-                        setPackageLines(next);
+                        const next = [...ticketLines];
+                        next[index] = { ...next[index]!, ticketTypeId: event.target.value };
+                        setTicketLines(next);
                       }}
                       options={[
-                        { label: "Select package", value: "" },
-                        ...(options?.packages ?? []).map((p) => ({ label: `${p.name} (${formatCurrency(p.salePrice)})`, value: p.id })),
+                        { label: "Select ticket", value: "" },
+                        ...(options?.tickets ?? []).map((t) => ({ label: `${t.name} (${formatCurrency(t.price)})`, value: t.id })),
                       ]}
                     />
                     <Input label="Qty" type="number" min={1} value={line.quantity} onChange={(e) => {
-                      const next = [...packageLines];
+                      const next = [...ticketLines];
                       next[index] = { ...next[index]!, quantity: e.target.value };
-                      setPackageLines(next);
+                      setTicketLines(next);
                     }} />
-                    <Button variant="outline" onClick={() => setPackageLines((prev) => prev.filter((_, i) => i !== index))}>Remove</Button>
+                    <Button variant="outline" onClick={() => setTicketLines((prev) => prev.filter((_, i) => i !== index))}>Remove</Button>
                   </div>
                 ))}
               </div>

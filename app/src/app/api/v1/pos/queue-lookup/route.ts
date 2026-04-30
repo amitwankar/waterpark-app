@@ -84,6 +84,8 @@ export async function GET(req: NextRequest) {
       sourceType: "QUEUE" as const,
       guestName: row.guestName,
       guestMobile: row.guestMobile ?? "",
+      guestEmail: row.guestEmail ?? "",
+      notes: row.notes ?? "",
       visitDate: row.visitDate.toISOString().slice(0, 10),
       status: row.status,
       totalAmount: total,

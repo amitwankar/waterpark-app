@@ -88,7 +88,7 @@ export function Step1GuestDetails({
           placeholder="10-digit mobile number"
         />
         <Input
-          label="Email (Optional)"
+          label="Email *"
           value={value.guestEmail}
           onChange={(event) => onChange({ guestEmail: event.target.value })}
           error={errors?.guestEmail}

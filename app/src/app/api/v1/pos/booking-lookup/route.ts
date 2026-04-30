@@ -128,6 +128,7 @@ export async function GET(req: NextRequest) {
       bookingNumber: b.bookingNumber,
       guestName: b.guestName,
       guestMobile: b.guestMobile,
+      guestEmail: b.guestEmail ?? "",
       visitDate: b.visitDate.toISOString().slice(0, 10),
       status: b.status,
       discountAmount: Number(b.discountAmount),

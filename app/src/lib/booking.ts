@@ -19,12 +19,11 @@ export const bookingSchema = z
     ),
     guestEmail: z.preprocess(
       (value) => (typeof value === "string" ? value.trim() : value),
-      z.union([z.literal(""), z.string().email("Enter a valid email").max(255)]).optional(),
+      z.string().email("Enter a valid email").max(255),
     ),
     visitDate: z.string().trim().regex(DATE_ONLY_REGEX, "Visit date must be in YYYY-MM-DD format"),
     ticketLines: z
       .array(ticketLineSchema)
-      .min(1, "Select at least one ticket type")
       .max(20, "Too many ticket types"),
     couponCode: z.string().trim().toUpperCase().max(40).optional().or(z.literal("")),
   })
@@ -52,14 +51,6 @@ export const bookingSchema = z
     }
 
     const totalQty = value.ticketLines.reduce((s, l) => s + l.quantity, 0);
-    if (totalQty < 1) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "Total ticket quantity must be at least 1",
-        path: ["ticketLines"],
-      });
-    }
-
     if (totalQty > 100) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,

@@ -26,12 +26,23 @@ type ApiValidationIssue = {
 
 type IdProofType = "AADHAAR" | "DRIVING_LICENSE" | "PAN" | "PASSPORT" | "VOTER_ID" | "OTHER";
 
+interface ImportEditLines {
+  packages: Array<{ packageId: string; name: string; quantity: number }>;
+  tickets: Array<{ ticketTypeId: string; name: string; quantity: number; unitPrice: number; gstRate: number }>;
+  food: Array<{ foodItemId: string; foodVariantId?: string; name: string; quantity: number }>;
+  lockers: Array<{ lockerCategoryId: string; quantity: number }>;
+  costumes: Array<{ costumeItemId: string; name: string; quantity: number }>;
+  rides: Array<{ rideId: string; name: string; quantity: number }>;
+}
+
 interface LookupBooking {
   id: string;
   bookingNumber: string;
   sourceType?: "BOOKING" | "QUEUE";
   guestName: string;
   guestMobile: string;
+  guestEmail?: string;
+  notes?: string;
   visitDate: string;
   status?: string;
   totalAmount?: number;
@@ -237,6 +248,7 @@ export function TicketTerminal({
   }>>([]);
   const [addOnError, setAddOnError] = useState<string | null>(null);
   const [importCandidate, setImportCandidate] = useState<LookupBooking | null>(null);
+  const [importEditLines, setImportEditLines] = useState<ImportEditLines | null>(null);
   const [sourcePickerOpen, setSourcePickerOpen] = useState<"BOOKING" | "QUEUE" | null>(null);
   const [sourcePickerQuery, setSourcePickerQuery] = useState("");
   const [sourcePickerItems, setSourcePickerItems] = useState<LookupBooking[]>([]);
@@ -821,6 +833,8 @@ export function TicketTerminal({
 
     setGuestName((prev) => (mode === "replace" || !prev ? booking.guestName || "" : prev));
     setGuestMobile((prev) => (mode === "replace" || !prev ? booking.guestMobile || "" : prev));
+    setGuestEmail((prev) => (mode === "replace" || !prev ? booking.guestEmail || "" : prev));
+    setNotes((prev) => (mode === "replace" || !prev ? booking.notes || "" : prev));
     setVisitDate(getTodayDateInIst());
     setLinkedBookingNumber(booking.bookingNumber);
     setLinkedQueueRequestId(booking.sourceType === "QUEUE" ? booking.id : null);
@@ -985,6 +999,65 @@ export function TicketTerminal({
 
   function handleLoadBookingForWalkIn(booking: LookupBooking): void {
     setImportCandidate(booking);
+    setImportEditLines({
+      packages: (booking.posPreload?.packageLines ?? []).map((l) => ({
+        packageId: l.packageId,
+        name: packageOptions.find((p) => p.id === l.packageId)?.name ?? l.packageId,
+        quantity: l.quantity,
+      })),
+      tickets: booking.tickets.map((t) => ({ ...t })),
+      food: (booking.posPreload?.foodLines ?? []).map((l) => ({
+        foodItemId: l.foodItemId,
+        foodVariantId: l.foodVariantId,
+        name:
+          foodOptions.find((f) =>
+            l.foodVariantId ? f.id === `${l.foodItemId}__${l.foodVariantId}` : f.id === l.foodItemId,
+          )?.name ?? l.foodItemId,
+        quantity: l.quantity,
+      })),
+      lockers: (booking.posPreload?.lockerLines ?? []).map((l) => ({
+        lockerCategoryId: l.lockerCategoryId ?? l.lockerId ?? "",
+        quantity: l.quantity,
+      })),
+      costumes: (booking.posPreload?.costumeLines ?? []).map((l) => ({
+        costumeItemId: l.costumeItemId,
+        name: costumeOptions.find((c) => c.id === l.costumeItemId)?.name ?? "Costume",
+        quantity: l.quantity,
+      })),
+      rides: (booking.posPreload?.rideLines ?? []).map((l) => ({
+        rideId: l.rideId,
+        name: rideOptions.find((r) => r.rideId === l.rideId)?.rideName ?? l.rideId,
+        quantity: l.quantity,
+      })),
+    });
+  }
+
+  function applyImportedBookingWithEdits(mode: "replace" | "merge"): void {
+    if (!importCandidate || !importEditLines) return;
+    const modified: LookupBooking = {
+      ...importCandidate,
+      tickets: importEditLines.tickets.filter((t) => t.quantity > 0),
+      posPreload: {
+        ...importCandidate.posPreload,
+        packageLines: importEditLines.packages
+          .filter((l) => l.quantity > 0)
+          .map((l) => ({ packageId: l.packageId, quantity: l.quantity })),
+        foodLines: importEditLines.food
+          .filter((l) => l.quantity > 0)
+          .map((l) => ({ foodItemId: l.foodItemId, foodVariantId: l.foodVariantId, quantity: l.quantity })),
+        lockerLines: importEditLines.lockers
+          .filter((l) => l.quantity > 0)
+          .map((l) => ({ lockerCategoryId: l.lockerCategoryId, quantity: l.quantity })),
+        costumeLines: importEditLines.costumes
+          .filter((l) => l.quantity > 0)
+          .map((l) => ({ costumeItemId: l.costumeItemId, quantity: l.quantity })),
+        rideLines: importEditLines.rides
+          .filter((l) => l.quantity > 0)
+          .map((l) => ({ rideId: l.rideId, quantity: l.quantity })),
+      },
+    };
+    applyImportedBooking(modified, mode);
+    setImportEditLines(null);
   }
 
   function updateParticipant(index: number, patch: Partial<ParticipantRow>): void {
@@ -1304,31 +1377,113 @@ export function TicketTerminal({
                     </div>
                   </div>
                 ) : null}
-                {importCandidate ? (
-                  <div className="mt-3 rounded-lg border border-teal-200 bg-teal-50 p-3 text-xs text-teal-800 space-y-2">
-                    <p>
-                      Import <span className="font-semibold">{importCandidate.bookingNumber}</span> for{" "}
-                      <span className="font-semibold">{importCandidate.guestName}</span>?
-                    </p>
+                {importCandidate && importEditLines ? (
+                  <div className="mt-3 rounded-lg border border-teal-200 bg-teal-50 p-3 text-xs text-teal-800 space-y-3">
+                    <div>
+                      <p className="font-semibold text-sm">{importCandidate.bookingNumber} — {importCandidate.guestName}</p>
+                      <p className="text-teal-600">Review and edit quantities before importing</p>
+                    </div>
+
+                    {/* Editable items list */}
+                    <div className="space-y-2">
+                      {importEditLines.packages.map((line, i) => (
+                        <div key={`ep-${i}`} className="flex items-center justify-between gap-2 bg-white rounded px-2 py-1.5 border border-teal-100">
+                          <span className="flex-1 truncate font-medium">{line.name}</span>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button type="button" className="w-5 h-5 rounded border border-gray-300 bg-white text-gray-600 flex items-center justify-center hover:bg-gray-100"
+                              onClick={() => setImportEditLines((prev) => prev ? { ...prev, packages: prev.packages.map((l, idx) => idx === i ? { ...l, quantity: Math.max(0, l.quantity - 1) } : l) } : prev)}>−</button>
+                            <span className="w-6 text-center font-semibold">{line.quantity}</span>
+                            <button type="button" className="w-5 h-5 rounded border border-gray-300 bg-white text-gray-600 flex items-center justify-center hover:bg-gray-100"
+                              onClick={() => setImportEditLines((prev) => prev ? { ...prev, packages: prev.packages.map((l, idx) => idx === i ? { ...l, quantity: l.quantity + 1 } : l) } : prev)}>+</button>
+                          </div>
+                        </div>
+                      ))}
+                      {importEditLines.tickets.map((line, i) => (
+                        <div key={`et-${i}`} className="flex items-center justify-between gap-2 bg-white rounded px-2 py-1.5 border border-teal-100">
+                          <span className="flex-1 truncate text-gray-700">{line.name}</span>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button type="button" className="w-5 h-5 rounded border border-gray-300 bg-white text-gray-600 flex items-center justify-center hover:bg-gray-100"
+                              onClick={() => setImportEditLines((prev) => prev ? { ...prev, tickets: prev.tickets.map((l, idx) => idx === i ? { ...l, quantity: Math.max(0, l.quantity - 1) } : l) } : prev)}>−</button>
+                            <span className="w-6 text-center font-semibold">{line.quantity}</span>
+                            <button type="button" className="w-5 h-5 rounded border border-gray-300 bg-white text-gray-600 flex items-center justify-center hover:bg-gray-100"
+                              onClick={() => setImportEditLines((prev) => prev ? { ...prev, tickets: prev.tickets.map((l, idx) => idx === i ? { ...l, quantity: l.quantity + 1 } : l) } : prev)}>+</button>
+                          </div>
+                        </div>
+                      ))}
+                      {importEditLines.food.map((line, i) => (
+                        <div key={`ef-${i}`} className="flex items-center justify-between gap-2 bg-white rounded px-2 py-1.5 border border-teal-100">
+                          <span className="flex-1 truncate text-gray-700">{line.name}</span>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button type="button" className="w-5 h-5 rounded border border-gray-300 bg-white text-gray-600 flex items-center justify-center hover:bg-gray-100"
+                              onClick={() => setImportEditLines((prev) => prev ? { ...prev, food: prev.food.map((l, idx) => idx === i ? { ...l, quantity: Math.max(0, l.quantity - 1) } : l) } : prev)}>−</button>
+                            <span className="w-6 text-center font-semibold">{line.quantity}</span>
+                            <button type="button" className="w-5 h-5 rounded border border-gray-300 bg-white text-gray-600 flex items-center justify-center hover:bg-gray-100"
+                              onClick={() => setImportEditLines((prev) => prev ? { ...prev, food: prev.food.map((l, idx) => idx === i ? { ...l, quantity: l.quantity + 1 } : l) } : prev)}>+</button>
+                          </div>
+                        </div>
+                      ))}
+                      {importEditLines.lockers.map((line, i) => (
+                        <div key={`el-${i}`} className="flex items-center justify-between gap-2 bg-white rounded px-2 py-1.5 border border-teal-100">
+                          <span className="flex-1 truncate text-gray-700">Locker</span>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button type="button" className="w-5 h-5 rounded border border-gray-300 bg-white text-gray-600 flex items-center justify-center hover:bg-gray-100"
+                              onClick={() => setImportEditLines((prev) => prev ? { ...prev, lockers: prev.lockers.map((l, idx) => idx === i ? { ...l, quantity: Math.max(0, l.quantity - 1) } : l) } : prev)}>−</button>
+                            <span className="w-6 text-center font-semibold">{line.quantity}</span>
+                            <button type="button" className="w-5 h-5 rounded border border-gray-300 bg-white text-gray-600 flex items-center justify-center hover:bg-gray-100"
+                              onClick={() => setImportEditLines((prev) => prev ? { ...prev, lockers: prev.lockers.map((l, idx) => idx === i ? { ...l, quantity: l.quantity + 1 } : l) } : prev)}>+</button>
+                          </div>
+                        </div>
+                      ))}
+                      {importEditLines.costumes.map((line, i) => (
+                        <div key={`ec-${i}`} className="flex items-center justify-between gap-2 bg-white rounded px-2 py-1.5 border border-teal-100">
+                          <span className="flex-1 truncate text-gray-700">{line.name}</span>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button type="button" className="w-5 h-5 rounded border border-gray-300 bg-white text-gray-600 flex items-center justify-center hover:bg-gray-100"
+                              onClick={() => setImportEditLines((prev) => prev ? { ...prev, costumes: prev.costumes.map((l, idx) => idx === i ? { ...l, quantity: Math.max(0, l.quantity - 1) } : l) } : prev)}>−</button>
+                            <span className="w-6 text-center font-semibold">{line.quantity}</span>
+                            <button type="button" className="w-5 h-5 rounded border border-gray-300 bg-white text-gray-600 flex items-center justify-center hover:bg-gray-100"
+                              onClick={() => setImportEditLines((prev) => prev ? { ...prev, costumes: prev.costumes.map((l, idx) => idx === i ? { ...l, quantity: l.quantity + 1 } : l) } : prev)}>+</button>
+                          </div>
+                        </div>
+                      ))}
+                      {importEditLines.rides.map((line, i) => (
+                        <div key={`er-${i}`} className="flex items-center justify-between gap-2 bg-white rounded px-2 py-1.5 border border-teal-100">
+                          <span className="flex-1 truncate text-gray-700">{line.name}</span>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button type="button" className="w-5 h-5 rounded border border-gray-300 bg-white text-gray-600 flex items-center justify-center hover:bg-gray-100"
+                              onClick={() => setImportEditLines((prev) => prev ? { ...prev, rides: prev.rides.map((l, idx) => idx === i ? { ...l, quantity: Math.max(0, l.quantity - 1) } : l) } : prev)}>−</button>
+                            <span className="w-6 text-center font-semibold">{line.quantity}</span>
+                            <button type="button" className="w-5 h-5 rounded border border-gray-300 bg-white text-gray-600 flex items-center justify-center hover:bg-gray-100"
+                              onClick={() => setImportEditLines((prev) => prev ? { ...prev, rides: prev.rides.map((l, idx) => idx === i ? { ...l, quantity: l.quantity + 1 } : l) } : prev)}>+</button>
+                          </div>
+                        </div>
+                      ))}
+                      {importEditLines.packages.length === 0 && importEditLines.tickets.length === 0 &&
+                        importEditLines.food.length === 0 && importEditLines.lockers.length === 0 &&
+                        importEditLines.costumes.length === 0 && importEditLines.rides.length === 0 && (
+                        <p className="text-gray-500 italic">No items in this queue entry</p>
+                      )}
+                    </div>
+
                     <div className="flex gap-2">
                       <button
                         type="button"
-                        className="rounded bg-teal-700 text-white px-2 py-1"
-                        onClick={() => applyImportedBooking(importCandidate, "replace")}
+                        className="rounded bg-teal-700 text-white px-3 py-1.5 font-medium hover:bg-teal-800"
+                        onClick={() => applyImportedBookingWithEdits("replace")}
                       >
-                        Replace cart
+                        Import
                       </button>
                       <button
                         type="button"
-                        className="rounded border border-teal-400 px-2 py-1"
-                        onClick={() => applyImportedBooking(importCandidate, "merge")}
+                        className="rounded border border-teal-400 px-3 py-1.5 hover:bg-teal-100"
+                        onClick={() => applyImportedBookingWithEdits("merge")}
                       >
-                        Merge with cart
+                        Merge
                       </button>
                       <button
                         type="button"
-                        className="rounded border border-gray-300 px-2 py-1 text-gray-700"
-                        onClick={() => setImportCandidate(null)}
+                        className="rounded border border-gray-300 px-3 py-1.5 text-gray-700 hover:bg-gray-100"
+                        onClick={() => { setImportCandidate(null); setImportEditLines(null); }}
                       >
                         Cancel
                       </button>

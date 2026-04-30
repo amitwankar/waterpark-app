@@ -22,9 +22,18 @@ import { formatCurrency } from "@/lib/utils";
 
 const steps = [
   { id: 1, title: "Guest Details" },
-  { id: 2, title: "Select Tickets" },
+  { id: 2, title: "Select Package" },
   { id: 3, title: "Summary" },
 ];
+
+interface BookingPackageOption {
+  id: string;
+  name: string;
+  listedPrice: number;
+  salePrice: number;
+  gstRate: number;
+  items: Array<{ itemType: string; quantity: number; label: string }>;
+}
 
 type FormValues = {
   guestName: string;
@@ -33,6 +42,7 @@ type FormValues = {
   guestDob: string;
   guestAddress: string;
   visitDate: string;
+  packageLines: Array<{ packageId: string; quantity: number }>;
   ticketLines: TicketLine[];
   couponCode: string;
   idProofType?: IdProofType;
@@ -150,6 +160,8 @@ export default function BookingPage(): JSX.Element {
   const [loadingTickets, setLoadingTickets] = useState<boolean>(true);
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [tickets, setTickets] = useState<BookingTicketType[]>([]);
+  const [packages, setPackages] = useState<BookingPackageOption[]>([]);
+  const [packageError, setPackageError] = useState<string>("");
   const [errors, setErrors] = useState<FormErrors>({});
   const [couponError, setCouponError] = useState<string>("");
   const [couponDiscount, setCouponDiscount] = useState<number>(0);
@@ -174,6 +186,7 @@ export default function BookingPage(): JSX.Element {
     guestDob: "",
     guestAddress: "",
     visitDate: "",
+    packageLines: [{ packageId: "", quantity: 1 }],
     ticketLines: [],
     couponCode: "",
     idProofType: undefined,
@@ -282,9 +295,33 @@ export default function BookingPage(): JSX.Element {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.user, pushToast]);
 
+  useEffect(() => {
+    if (!session?.user) return;
+    void fetch("/api/v1/packages?activeOnly=true")
+      .then(async (res) => {
+        if (!res.ok) return;
+        const data = (await res.json()) as BookingPackageOption[];
+        setPackages(data);
+        if (data.length > 0) {
+          setValues((current) => ({
+            ...current,
+            packageLines: current.packageLines.length === 1 && !current.packageLines[0]?.packageId
+              ? [{ packageId: data[0]!.id, quantity: 1 }]
+              : current.packageLines,
+          }));
+        }
+      })
+      .catch(() => {});
+  }, [session?.user]);
+
   const ticketMap = useMemo(
     () => new Map(tickets.map((t) => [t.id, t])),
     [tickets],
+  );
+
+  const packageMap = useMemo(
+    () => new Map(packages.map((p) => [p.id, p])),
+    [packages],
   );
 
   useEffect(() => {
@@ -293,17 +330,49 @@ export default function BookingPage(): JSX.Element {
     );
   }, [values.ticketLines, values.guestName, ticketMap]);
 
+  const packagePricing = useMemo(() => {
+    let subtotal = 0;
+    let gst = 0;
+    for (const line of values.packageLines) {
+      const pkg = packageMap.get(line.packageId);
+      if (!pkg || line.quantity < 1) continue;
+      const base = pkg.salePrice * line.quantity;
+      subtotal += base;
+      gst += base * (pkg.gstRate / 100);
+    }
+    return { subtotal: Math.round(subtotal * 100) / 100, gst: Math.round(gst * 100) / 100 };
+  }, [values.packageLines, packageMap]);
+
   const pricing = useMemo(() => {
     const lines = values.ticketLines.map((l) => ({
       quantity: l.quantity,
       unitPrice: ticketMap.get(l.ticketTypeId)?.price ?? 0,
     }));
     const gstRate = tickets.length > 0 ? (ticketMap.get(values.ticketLines[0]?.ticketTypeId ?? "")?.gstRate ?? 18) : 18;
-    return calculatePricing({ lines, gstRate, discountAmount: couponDiscount });
-  }, [values.ticketLines, ticketMap, tickets, couponDiscount]);
+    const ticketPricing = calculatePricing({ lines, gstRate, discountAmount: couponDiscount });
+    return {
+      subtotal: Math.round((ticketPricing.subtotal + packagePricing.subtotal) * 100) / 100,
+      gstAmount: Math.round((ticketPricing.gstAmount + packagePricing.gst) * 100) / 100,
+      discountAmount: ticketPricing.discountAmount,
+      totalAmount: Math.round((ticketPricing.totalAmount + packagePricing.subtotal + packagePricing.gst) * 100) / 100,
+    };
+  }, [values.ticketLines, ticketMap, tickets, couponDiscount, packagePricing]);
 
   const bookingCartItems = useMemo<OrderSummaryItem[]>(() => {
-    return values.ticketLines
+    const pkgItems: OrderSummaryItem[] = values.packageLines
+      .map((line) => {
+        const pkg = packageMap.get(line.packageId);
+        if (!pkg) return null;
+        return {
+          label: pkg.name,
+          quantity: line.quantity,
+          unitPrice: pkg.salePrice,
+          lineTotal: pkg.salePrice * line.quantity,
+        };
+      })
+      .filter((item): item is OrderSummaryItem => item !== null);
+
+    const ticketItems: OrderSummaryItem[] = values.ticketLines
       .map((line) => {
         const ticket = ticketMap.get(line.ticketTypeId);
         if (!ticket) return null;
@@ -315,7 +384,9 @@ export default function BookingPage(): JSX.Element {
         };
       })
       .filter((item): item is OrderSummaryItem => item !== null);
-  }, [values.ticketLines, ticketMap]);
+
+    return [...pkgItems, ...ticketItems];
+  }, [values.packageLines, values.ticketLines, packageMap, ticketMap]);
 
   const paymentBreakdown = useMemo(() => {
     if (values.paymentPlan === "ADVANCE") {
@@ -402,6 +473,13 @@ export default function BookingPage(): JSX.Element {
   }
 
   function validateCurrentStep(nextStep: number): boolean {
+    const hasValidPackage = values.packageLines.some((l) => l.packageId !== "" && l.quantity > 0);
+    if (nextStep > 2 && !hasValidPackage) {
+      setPackageError("Select at least one package to continue");
+      return false;
+    }
+    setPackageError("");
+
     const result = bookingSchema.safeParse({
       guestName: values.guestName,
       guestMobile: values.guestMobile,
@@ -465,6 +543,7 @@ export default function BookingPage(): JSX.Element {
           guestDob: values.guestDob || undefined,
           guestAddress: values.guestAddress || undefined,
           visitDate: values.visitDate,
+          packageLines: values.packageLines.filter((l) => l.packageId && l.quantity > 0),
           ticketLines: values.ticketLines,
           couponCode: sanitizeCouponCode(values.couponCode) ?? undefined,
           idProofType: values.idProofType,
@@ -712,15 +791,85 @@ export default function BookingPage(): JSX.Element {
           ) : null}
 
           {!loadingTickets && step === 2 ? (
-            <div className="animate-fade-in space-y-4">
-              <Step2TicketSelection
-                tickets={tickets}
-                ticketLines={values.ticketLines}
-                error={errors.ticketLines}
-                participants={participants}
-                onTicketLinesChange={(next) => setValues((current) => ({ ...current, ticketLines: next }))}
-                onParticipantsChange={setParticipants}
-              />
+            <div className="animate-fade-in space-y-5">
+              {/* Package selection — primary / required */}
+              <div className="space-y-3">
+                <h2 className="text-sm font-semibold text-[var(--color-text)]">Select Package *</h2>
+                {packageError ? <p className="text-xs text-red-600">{packageError}</p> : null}
+                {values.packageLines.map((line, index) => {
+                  const selectedPkg = packageMap.get(line.packageId);
+                  return (
+                    <div key={`pkg-${index}`} className="space-y-2">
+                      <div className="grid gap-3 items-end grid-cols-[1fr_120px_auto]">
+                        <Select
+                          label="Package"
+                          value={line.packageId}
+                          onChange={(e) => {
+                            const next = [...values.packageLines];
+                            next[index] = { ...next[index]!, packageId: e.target.value };
+                            setValues((cur) => ({ ...cur, packageLines: next }));
+                            setPackageError("");
+                          }}
+                          options={[
+                            { label: "Select package", value: "" },
+                            ...packages.map((p) => ({ label: `${p.name} (${formatCurrency(p.salePrice)})`, value: p.id })),
+                          ]}
+                        />
+                        <Input
+                          label="Qty"
+                          type="number"
+                          min={1}
+                          value={String(line.quantity)}
+                          onChange={(e) => {
+                            const next = [...values.packageLines];
+                            next[index] = { ...next[index]!, quantity: Math.max(1, Number(e.target.value || 1)) };
+                            setValues((cur) => ({ ...cur, packageLines: next }));
+                          }}
+                        />
+                        <Button
+                          variant="outline"
+                          onClick={() => setValues((cur) => ({ ...cur, packageLines: cur.packageLines.filter((_, i) => i !== index) }))}
+                          disabled={values.packageLines.length === 1}
+                        >
+                          Remove
+                        </Button>
+                      </div>
+                      {selectedPkg && selectedPkg.items.length > 0 ? (
+                        <div className="rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-xs text-[var(--color-text-muted)]">
+                          <span className="font-semibold text-[var(--color-text)]">Includes: </span>
+                          {selectedPkg.items.map((item, i) => (
+                            <span key={i}>{i > 0 ? " · " : ""}{item.quantity > 1 ? `${item.quantity}× ` : ""}{item.label}</span>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+                <Button
+                  variant="outline"
+                  onClick={() => setValues((cur) => ({ ...cur, packageLines: [...cur.packageLines, { packageId: "", quantity: 1 }] }))}
+                >
+                  Add Package Line
+                </Button>
+              </div>
+
+              {/* Tickets — optional add-on */}
+              <details className="rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
+                <summary className="cursor-pointer text-sm font-semibold text-[var(--color-text)] list-none flex items-center justify-between">
+                  <span>Tickets (Optional Add-on)</span>
+                  <span className="text-xs font-normal text-[var(--color-text-muted)]">expand to add</span>
+                </summary>
+                <div className="mt-4">
+                  <Step2TicketSelection
+                    tickets={tickets}
+                    ticketLines={values.ticketLines}
+                    error={errors.ticketLines}
+                    participants={participants}
+                    onTicketLinesChange={(next) => setValues((current) => ({ ...current, ticketLines: next }))}
+                    onParticipantsChange={setParticipants}
+                  />
+                </div>
+              </details>
             </div>
           ) : null}
 

@@ -76,31 +76,48 @@ export function ReceiptModal({ receiptId: receiptRef, type = "booking", onClose 
 
   function handlePrint() {
     if (!printRef.current) return;
-    const printWindow = window.open("", "_blank", "width=400,height=700");
-    if (!printWindow) {
-      alert("Please allow pop-ups in your browser to print the receipt.");
-      return;
-    }
-    printWindow.document.write(`
-      <html>
-        <head>
-          <title>Receipt ${receipt?.receiptNumber ?? ""}</title>
-          <style>
-            body { font-family: monospace; font-size: 12px; margin: 0; padding: 16px; }
-            .center { text-align: center; }
-            .bold { font-weight: bold; }
-            .line { border-top: 1px dashed #000; margin: 8px 0; }
-            .row { display: flex; justify-content: space-between; margin: 2px 0; }
-            .total { font-size: 14px; font-weight: bold; }
-          </style>
-        </head>
-        <body>${printRef.current.innerHTML}</body>
-      </html>
-    `);
-    printWindow.document.close();
-    printWindow.focus();
-    printWindow.onafterprint = () => printWindow.close();
-    printWindow.print();
+
+    // Clone receipt content into a dedicated print container so we get the
+    // exact same Tailwind-styled HTML that the user sees (true WYSIWYG).
+    // We then hide everything else with @media print so any paper size works —
+    // thermal 58mm/80mm, slim roll, A4 — the OS/printer setting decides the width.
+    const container = document.createElement("div");
+    container.id = "__receipt-print-root";
+    container.style.cssText = "display:none;position:absolute;top:0;left:0;width:100%;padding:8px;box-sizing:border-box;";
+    container.innerHTML = printRef.current.outerHTML;
+
+    const style = document.createElement("style");
+    style.id = "__receipt-print-style";
+    style.textContent = `
+      @media print {
+        @page { size: auto; margin: 8mm; }
+        body > * { visibility: hidden !important; }
+        #__receipt-print-root,
+        #__receipt-print-root * { visibility: visible !important; }
+        #__receipt-print-root {
+          display: block !important;
+          position: fixed !important;
+          top: 0; left: 0;
+          width: 100%;
+          padding: 0 !important;
+        }
+      }
+    `;
+
+    document.head.appendChild(style);
+    document.body.appendChild(container);
+
+    const cleanup = () => {
+      const s = document.getElementById("__receipt-print-style");
+      const c = document.getElementById("__receipt-print-root");
+      if (s) document.head.removeChild(s);
+      if (c) document.body.removeChild(c);
+      window.removeEventListener("afterprint", cleanup);
+    };
+    window.addEventListener("afterprint", cleanup);
+    window.print();
+    // Fallback cleanup for browsers that don't fire afterprint
+    setTimeout(cleanup, 3000);
   }
 
   async function handleWhatsApp() {
