@@ -5,7 +5,7 @@ import { db } from "@/lib/db";
 import { redis } from "@/lib/redis";
 import { requireSubRole } from "@/lib/session";
 import { getSettings } from "@/lib/settings";
-import { validateSplitPayment, type SplitPaymentLine } from "@/lib/pos";
+import { sumEffectivePaidAmount, validateSplitPayment, type SplitPaymentLine } from "@/lib/pos";
 import { logAudit, getIp } from "@/lib/audit";
 import { withRequestContext } from "@/lib/logger";
 
@@ -84,7 +84,7 @@ export async function POST(req: NextRequest) {
   const booking = await db.booking.findUnique({
     where: { id: bookingId },
     include: {
-      transactions: { where: { status: "PAID" } },
+      transactions: { select: { amount: true, status: true, verifiedAt: true, paymentId: true } },
     },
   });
   if (!booking) {
@@ -94,7 +94,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Booking is cancelled" }, { status: 400 });
   }
 
-  const totalPaid = booking.transactions.reduce((s, t) => s + Number(t.amount), 0);
+  const totalPaid = sumEffectivePaidAmount(booking.transactions);
   const balance = Math.round((Number(booking.totalAmount) - totalPaid) * 100) / 100;
 
   if (balance <= 0) {

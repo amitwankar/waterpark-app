@@ -135,7 +135,6 @@ export function ReceiptModal({ receiptId: receiptRef, type = "booking", onClose 
     const lines = [
       `*${r.parkName}*`,
       `Receipt: ${r.receiptNumber}`,
-      r.bookingId ? `Booking ID: ${r.bookingId}` : null,
       `Date: ${new Date(r.createdAt).toLocaleString()}`,
       ``,
       `*Items:*`,
@@ -183,7 +182,6 @@ export function ReceiptModal({ receiptId: receiptRef, type = "booking", onClose 
                 <p className="text-gray-500">Terminal: {receipt.terminalId}</p>
                 <p className="text-gray-500">{new Date(receipt.createdAt).toLocaleString()}</p>
                 <p className="font-medium">#{receipt.receiptNumber}</p>
-                {receipt.bookingId && <p className="text-gray-500">Booking ID: {receipt.bookingId}</p>}
               </div>
 
               {(receipt.guestName || receipt.guestMobile) && (

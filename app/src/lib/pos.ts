@@ -4,6 +4,8 @@
  */
 import "server-only";
 
+import type { TransactionStatus } from "@prisma/client";
+
 import { evaluateCoupon } from "@/lib/coupon";
 import { type CouponScopeMatrix } from "@/lib/coupon-scope";
 import { db } from "@/lib/db";
@@ -28,6 +30,27 @@ export interface CartTotals {
 export interface SplitPaymentLine {
   method: "CASH" | "MANUAL_UPI" | "CARD" | "COMPLIMENTARY";
   amount: number;
+}
+
+type PaymentLike = {
+  amount: number | string | { toString(): string };
+  status?: TransactionStatus | null;
+  verifiedAt?: Date | null;
+  paymentId?: string | null;
+};
+
+export function isEffectivePaidTransaction(tx: PaymentLike): boolean {
+  if (tx.status === "PAID") return true;
+  if (tx.status === "FAILED" || tx.status === "REJECTED" || tx.status === "REFUNDED") return false;
+  if (tx.status === "PENDING") return Boolean(tx.verifiedAt || tx.paymentId);
+  return false;
+}
+
+export function sumEffectivePaidAmount(transactions: PaymentLike[]): number {
+  return transactions.reduce((sum, tx) => {
+    if (!isEffectivePaidTransaction(tx)) return sum;
+    return sum + Number(tx.amount);
+  }, 0);
 }
 
 // ─── Coupon validation ────────────────────────────────────────────────────────

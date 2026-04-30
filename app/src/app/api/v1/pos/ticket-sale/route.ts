@@ -15,6 +15,7 @@ import {
   validateCoupon,
   computeCartTotals,
   validateSplitPayment,
+  sumEffectivePaidAmount,
   generateBookingNumber,
   type CartLineItem,
   type SplitPaymentLine,
@@ -448,8 +449,7 @@ export async function POST(req: NextRequest) {
         visitDate: true,
         bookingTickets: { select: { ticketTypeId: true, quantity: true, unitPrice: true, gstRate: true } },
         transactions: {
-          where: { status: "PAID" },
-          select: { amount: true },
+          select: { amount: true, status: true, verifiedAt: true, paymentId: true },
         },
       },
     });
@@ -463,7 +463,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Booking visit date does not match selected visit date" }, { status: 400 });
     }
 
-    sourceBookingPaidAmount = booking.transactions.reduce((sum, row) => sum + Number(row.amount), 0);
+    sourceBookingPaidAmount = sumEffectivePaidAmount(booking.transactions);
 
     // Only snapshot paid ticket lines; package entitlements can be stored as unitPrice=0.
     ticketSnapshot = booking.bookingTickets
@@ -591,10 +591,12 @@ export async function POST(req: NextRequest) {
   let couponId: string | undefined;
   let discountAmount = 0;
   if (couponCode) {
+    const couponEligibleSubtotal = [...cartLines, ...packageCartLines].reduce((s, l) => s + l.unitPrice * l.quantity, 0);
+    const couponTicketTypeIds = Array.from(new Set(ticketEntitlementLines.map((line) => line.ticketTypeId)));
     const cv = await validateCoupon(
       couponCode,
-      cartLines.reduce((s, l) => s + l.unitPrice * l.quantity, 0),
-      cartLines.map((l) => l.ticketTypeId),
+      couponEligibleSubtotal,
+      couponTicketTypeIds,
       {
         mobile: guestMobile,
         adults,

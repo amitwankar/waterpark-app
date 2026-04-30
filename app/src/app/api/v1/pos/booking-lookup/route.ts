@@ -4,6 +4,7 @@ import type { Prisma } from "@prisma/client";
 import { splitBookingNotes } from "@/lib/booking-meta";
 import { db } from "@/lib/db";
 import { withRequestContext } from "@/lib/logger";
+import { sumEffectivePaidAmount } from "@/lib/pos";
 import { requireSubRole } from "@/lib/session";
 
 /**
@@ -72,7 +73,7 @@ export async function GET(req: NextRequest) {
     take,
     orderBy: [{ visitDate: "asc" }, { createdAt: "desc" }],
     include: {
-      transactions: { where: { status: "PAID" }, select: { amount: true } },
+      transactions: { select: { amount: true, status: true, verifiedAt: true, paymentId: true } },
       lockerAssignments: {
         where: { returnedAt: null },
         select: { id: true, notes: true },
@@ -108,7 +109,7 @@ export async function GET(req: NextRequest) {
 
   const results = bookings.map((b) => {
     const parsedNotes = splitBookingNotes(b.notes);
-    const paid = b.transactions.reduce((s, t) => s + Number(t.amount), 0);
+    const paid = sumEffectivePaidAmount(b.transactions);
     const balance = Math.round((Number(b.totalAmount) - paid) * 100) / 100;
     const entitlementPending = b.lockerEntitlements.reduce((sum, row) => {
       return sum + Math.max(0, row.quantity - row.deliveredQuantity);

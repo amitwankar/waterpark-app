@@ -431,13 +431,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return sum + Number(ride.entryFee) * line.quantity * (Number(ride.gstRate ?? parkConfig.defaultGstRate) / 100);
   }, 0);
 
+  const couponEligibleSubtotal = roundMoney(
+    ticketSubtotal + packageBaseAmount + foodBaseAmount + lockerBaseAmount + costumeBaseAmount + rideBaseAmount,
+  );
+
   let discountAmount = 0;
   let couponId: string | null = null;
   let freeLockerApplied = false;
   if (couponCode) {
     const couponResult = await evaluateCoupon({
       code: couponCode,
-      subtotal: ticketSubtotal,
+      subtotal: couponEligibleSubtotal,
       totalGuests,
       adults,
       children,
