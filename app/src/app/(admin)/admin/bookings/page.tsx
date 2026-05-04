@@ -856,13 +856,17 @@ export default function AdminBookingsPage(): JSX.Element {
           >
             Cancel
           </Button>
-          {row.status === "CANCELLED" ? (
+          {row.status === "CANCELLED" || row.status === "COMPLETED" ? (
             <Button
               size="sm"
               variant="ghost"
               className="text-red-600"
               onClick={async () => {
-                const ok = window.confirm("Delete this cancelled booking permanently?");
+                const ok = window.confirm(
+                  row.status === "COMPLETED"
+                    ? "Delete this checked-out booking permanently?"
+                    : "Delete this cancelled booking permanently?",
+                );
                 if (!ok) return;
                 const response = await fetch(`/api/v1/bookings/${row.id}`, { method: "DELETE" });
                 if (!response.ok) {

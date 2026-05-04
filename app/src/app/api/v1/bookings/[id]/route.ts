@@ -289,10 +289,10 @@ export async function DELETE(
   });
   if (!booking) return NextResponse.json({ message: "Booking not found" }, { status: 404 });
   if (role === "EMPLOYEE" && booking.userId !== user.id) {
-    return NextResponse.json({ message: "You can only delete your own cancelled bookings" }, { status: 403 });
+    return NextResponse.json({ message: "You can only delete your own cancelled or completed bookings" }, { status: 403 });
   }
-  if (booking.status !== "CANCELLED") {
-    return NextResponse.json({ message: "Only cancelled bookings can be deleted" }, { status: 400 });
+  if (booking.status !== "CANCELLED" && booking.status !== "COMPLETED") {
+    return NextResponse.json({ message: "Only cancelled or checked-out (COMPLETED) bookings can be deleted" }, { status: 400 });
   }
 
   await db.$transaction(async (tx) => {
