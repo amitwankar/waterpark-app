@@ -6,7 +6,6 @@ import { BookingStatusBadge } from "@/components/booking/BookingStatusBadge";
 import { CouponInput } from "@/components/booking/CouponInput";
 import { OrderSummary } from "@/components/booking/OrderSummary";
 import { Step1GuestDetails, type IdProofType } from "@/components/booking/Step1GuestDetails";
-import { Step2TicketSelection } from "@/components/booking/Step2TicketSelection";
 import { StepIndicator } from "@/components/booking/StepIndicator";
 import { type ParticipantDraft } from "@/components/booking/ParticipantRow";
 import { useToast } from "@/components/feedback/Toast";
@@ -165,7 +164,7 @@ const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
 
 const ADD_STEPS = [
   { id: 1, title: "Guest Details" },
-  { id: 2, title: "Select Tickets" },
+  { id: 2, title: "Select Packages" },
   { id: 3, title: "Summary" },
 ];
 
@@ -632,6 +631,15 @@ export default function AdminBookingsPage(): JSX.Element {
       }
     }
 
+    if (nextStep >= 3 && createDraft.packageLines.length === 0) {
+      setFormErrors((current) => ({
+        ...current,
+        packageLines: "At least one package is required for pre-booking",
+      }));
+      setAddStep(2);
+      return false;
+    }
+
     setFormErrors({});
     return true;
   }
@@ -1070,11 +1078,10 @@ export default function AdminBookingsPage(): JSX.Element {
             element: (
               <Button
                 onClick={() => {
-                  const firstTicket = ticketTypes[0];
                   setCreateDraft({
                     ...DEFAULT_CREATE_DRAFT,
                     visitDate: dateRange.min || new Date().toISOString().slice(0, 10),
-                    ticketLines: firstTicket ? [{ ticketTypeId: firstTicket.id, quantity: 1 }] : [],
+                    ticketLines: [],
                   });
                   setParticipants([]);
                   setFormErrors({});
@@ -1207,14 +1214,71 @@ export default function AdminBookingsPage(): JSX.Element {
           ) : null}
 
           {addStep === 2 ? (
-            <Step2TicketSelection
-              tickets={ticketTypes}
-              ticketLines={createDraft.ticketLines}
-              error={formErrors.ticketLines}
-              participants={participants}
-              onTicketLinesChange={(next) => setCreateDraft((current) => ({ ...current, ticketLines: next }))}
-              onParticipantsChange={setParticipants}
-            />
+            <div className="rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4 space-y-4">
+              <h2 className="text-sm font-semibold text-[var(--color-text)]">Packages & Add-ons</h2>
+              <p className="text-xs text-[var(--color-text-muted)]">
+                Primary pre-booking item is package. Add at least one package.
+              </p>
+              {formErrors.packageLines ? (
+                <p className="text-xs font-medium text-red-600">{formErrors.packageLines}</p>
+              ) : null}
+
+              <div className="grid gap-3 md:grid-cols-[1fr_120px_auto]">
+                <Select
+                  label="Package"
+                  value={packagePicker.packageId}
+                  onChange={(event) => setPackagePicker((current) => ({ ...current, packageId: event.target.value }))}
+                  options={[{ label: "Select package", value: "" }, ...packageOptions.map((item) => ({ label: `${item.name} (₹${item.salePrice})`, value: item.id }))]}
+                />
+                <Input
+                  label="Qty"
+                  type="number"
+                  min={1}
+                  value={packagePicker.quantity}
+                  onChange={(event) => setPackagePicker((current) => ({ ...current, quantity: event.target.value }))}
+                />
+                <div className="self-end">
+                  <Button variant="outline" onClick={addPackageLine}>Add Package</Button>
+                </div>
+              </div>
+
+              <div className="rounded-[var(--radius-md)] border border-[var(--color-border)] p-3 space-y-3">
+                <p className="text-xs font-medium text-[var(--color-text-muted)]">Selected Packages</p>
+                {createDraft.packageLines.length > 0 ? (
+                  <div className="space-y-2">
+                    {createDraft.packageLines.map((line, index) => (
+                      <div key={`pkg-step2-${index}`} className="grid gap-2 md:grid-cols-[1fr_90px_auto]">
+                        <Select
+                          value={line.packageId}
+                          onChange={(event) => updatePackageLine(index, { packageId: event.target.value })}
+                          options={packageOptions.map((item) => ({ label: `${item.name} (₹${item.salePrice})`, value: item.id }))}
+                        />
+                        <Input
+                          type="number"
+                          min={1}
+                          value={String(line.quantity)}
+                          onChange={(event) => updatePackageLine(index, { quantity: Math.max(1, Number(event.target.value || 1)) })}
+                        />
+                        <Button
+                          variant="ghost"
+                          className="text-red-600"
+                          onClick={() =>
+                            setCreateDraft((current) => ({
+                              ...current,
+                              packageLines: current.packageLines.filter((_, rowIndex) => rowIndex !== index),
+                            }))
+                          }
+                        >
+                          Remove
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-[var(--color-text-muted)]">No package selected yet.</p>
+                )}
+              </div>
+            </div>
           ) : null}
 
           {addStep === 3 ? (
