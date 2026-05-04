@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { BookingStatusBadge } from "@/components/booking/BookingStatusBadge";
+import { useToast } from "@/components/feedback/Toast";
 import { DataTable, type DataTableColumn } from "@/components/layout/DataTable";
 import { PageHeader } from "@/components/layout/PageHeader";
 import { Pagination } from "@/components/layout/Pagination";
@@ -41,6 +42,7 @@ interface BookingListResponse {
 }
 
 export default function AdminPosBookingsPage(): JSX.Element {
+  const { pushToast } = useToast();
   const [items, setItems] = useState<BookingItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -146,11 +148,38 @@ export default function AdminPosBookingsPage(): JSX.Element {
       key: "actions",
       header: "Actions",
       render: (row) => (
-        <a href={`/admin/bookings/${row.id}`}>
-          <Button size="sm" variant="outline">
-            View
-          </Button>
-        </a>
+        <div className="flex flex-wrap gap-2">
+          <a href={`/admin/bookings/${row.id}`}>
+            <Button size="sm" variant="outline">
+              View
+            </Button>
+          </a>
+          {row.status === "CANCELLED" || row.status === "COMPLETED" ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="text-red-600"
+              onClick={async () => {
+                const ok = window.confirm(
+                  row.status === "COMPLETED"
+                    ? "Delete this checked-out POS booking permanently?"
+                    : "Delete this cancelled POS booking permanently?",
+                );
+                if (!ok) return;
+                const response = await fetch(`/api/v1/bookings/${row.id}`, { method: "DELETE" });
+                if (!response.ok) {
+                  const payload = (await response.json().catch(() => null)) as { message?: string } | null;
+                  pushToast({ title: "Delete failed", message: payload?.message ?? "Could not delete booking", variant: "error" });
+                  return;
+                }
+                pushToast({ title: "Booking deleted", variant: "success" });
+                await loadBookings();
+              }}
+            >
+              Delete
+            </Button>
+          ) : null}
+        </div>
       ),
     },
   ];
