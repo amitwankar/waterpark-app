@@ -9,6 +9,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
+import { autoCheckoutExpiredCheckedInBookings } from "@/lib/booking-lifecycle";
 import { db } from "@/lib/db";
 import { requireStaff } from "@/lib/session";
 
@@ -20,6 +21,7 @@ const schema = z.object({
 export async function POST(req: NextRequest): Promise<NextResponse> {
   const { user, error } = await requireStaff();
   if (error) return error;
+  await autoCheckoutExpiredCheckedInBookings();
 
   const body = await req.json().catch(() => null);
   const parsed = schema.safeParse(body);

@@ -7,12 +7,14 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 
+import { autoCheckoutExpiredCheckedInBookings } from "@/lib/booking-lifecycle";
 import { db } from "@/lib/db";
 import { requireStaff } from "@/lib/session";
 
 export async function GET(req: NextRequest): Promise<NextResponse> {
   const { error } = await requireStaff();
   if (error) return error;
+  await autoCheckoutExpiredCheckedInBookings();
 
   const q = req.nextUrl.searchParams.get("q")?.trim();
   if (!q) {
@@ -116,6 +118,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       isValidStatus,
       gateUsed,
       canEnterGate: isValidDate && isValidStatus && remainingCount > 0,
+      canCheckout: booking.status === "CHECKED_IN",
     },
     gateUsage: {
       allowedCount,

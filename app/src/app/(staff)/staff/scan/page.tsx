@@ -23,7 +23,7 @@ import { formatCurrency, formatDate } from "@/lib/utils";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type ScanMode = "gate" | "ride" | "locker" | "costume" | "info";
+type ScanMode = "gate" | "checkout" | "ride" | "locker" | "costume" | "info";
 
 interface RideOption {
   id: string;
@@ -60,6 +60,7 @@ interface LookupResult {
     isValidStatus: boolean;
     gateUsed: boolean;
     canEnterGate: boolean;
+    canCheckout?: boolean;
   };
   gateUsage: {
     allowedCount: number;
@@ -76,6 +77,7 @@ type ActionState =
 
 const MODE_LABELS: Record<ScanMode, string> = {
   gate: "Gate Entry",
+  checkout: "Checkout",
   ride: "Ride Access",
   locker: "Locker Verify",
   costume: "Costume Verify",
@@ -84,6 +86,7 @@ const MODE_LABELS: Record<ScanMode, string> = {
 
 const MODE_COLORS: Record<ScanMode, string> = {
   gate: "emerald",
+  checkout: "orange",
   ride: "blue",
   locker: "indigo",
   costume: "purple",
@@ -92,6 +95,7 @@ const MODE_COLORS: Record<ScanMode, string> = {
 
 const CONFIRM_BTN: Record<ScanMode, string> = {
   gate: "Grant Entry",
+  checkout: "Checkout Guest",
   ride: "Grant Ride Access",
   locker: "Mark Locker Used",
   costume: "Mark Costume Used",
@@ -131,6 +135,7 @@ export default function ScanPage(): JSX.Element {
   const [lookupError, setLookupError] = useState<string | null>(null);
 
   const [confirming, setConfirming] = useState(false);
+  const [deletingBooking, setDeletingBooking] = useState(false);
   const [actionState, setActionState] = useState<ActionState>({ phase: "idle" });
 
   const inputRef = useRef<HTMLInputElement>(null);
@@ -154,6 +159,7 @@ export default function ScanPage(): JSX.Element {
   const reset = useCallback(() => {
     setLookupResult(null);
     setLookupError(null);
+    setDeletingBooking(false);
     setActionState({ phase: "idle" });
     setScanInput("");
     setTimeout(() => inputRef.current?.focus(), 50);
@@ -253,6 +259,33 @@ export default function ScanPage(): JSX.Element {
             });
           }
         }
+      } else if (mode === "checkout") {
+        const res = await fetch("/api/v1/scan/checkout", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ bookingNumber: booking.bookingNumber }),
+        });
+        const data = (await res.json()) as {
+          success?: boolean;
+          message?: string;
+          alreadyCompleted?: boolean;
+        };
+
+        if (!res.ok) {
+          setActionState({ phase: "confirmed", type: "error", message: data.message ?? "Checkout failed" });
+        } else if (data.alreadyCompleted) {
+          setActionState({ phase: "confirmed", type: "warn", message: "Already checked out", subText: data.message });
+        } else {
+          setActionState({ phase: "confirmed", type: "success", message: "Checkout completed ✓", subText: `${booking.guestName} — ${booking.bookingNumber}` });
+          setLookupResult((prev) => {
+            if (!prev) return prev;
+            return {
+              ...prev,
+              booking: { ...prev.booking, status: "COMPLETED" },
+              validity: { ...prev.validity, canCheckout: false, isValidStatus: false, canEnterGate: false },
+            };
+          });
+        }
       } else if (mode === "ride") {
         if (!selectedRideId) {
           setActionState({ phase: "confirmed", type: "error", message: "Select a ride first" });
@@ -306,9 +339,39 @@ export default function ScanPage(): JSX.Element {
     }
   }
 
+  async function handleDeleteCompletedBooking(): Promise<void> {
+    if (!lookupResult) return;
+    if (lookupResult.booking.status !== "COMPLETED") return;
+    const ok = window.confirm(`Delete booking ${lookupResult.booking.bookingNumber} permanently?`);
+    if (!ok) return;
+
+    setDeletingBooking(true);
+    try {
+      const res = await fetch("/api/v1/scan/delete-booking", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bookingNumber: lookupResult.booking.bookingNumber }),
+      });
+      const data = (await res.json().catch(() => null)) as { message?: string } | null;
+      if (!res.ok) {
+        setActionState({ phase: "confirmed", type: "error", message: data?.message ?? "Delete failed" });
+        return;
+      }
+      setActionState({ phase: "confirmed", type: "success", message: "Booking deleted permanently" });
+      setLookupResult(null);
+      setLookupError(null);
+      setScanInput("");
+    } catch {
+      setActionState({ phase: "confirmed", type: "error", message: "Network error while deleting booking" });
+    } finally {
+      setDeletingBooking(false);
+    }
+  }
+
   const colorSet = MODE_COLORS[mode];
   const accentCls = {
     emerald: { btn: "bg-emerald-600 hover:bg-emerald-700", badge: "bg-emerald-100 text-emerald-800", border: "border-emerald-500" },
+    orange: { btn: "bg-orange-600 hover:bg-orange-700", badge: "bg-orange-100 text-orange-800", border: "border-orange-500" },
     blue: { btn: "bg-blue-600 hover:bg-blue-700", badge: "bg-blue-100 text-blue-800", border: "border-blue-500" },
     indigo: { btn: "bg-indigo-600 hover:bg-indigo-700", badge: "bg-indigo-100 text-indigo-800", border: "border-indigo-500" },
     purple: { btn: "bg-purple-600 hover:bg-purple-700", badge: "bg-purple-100 text-purple-800", border: "border-purple-500" },
@@ -322,6 +385,7 @@ export default function ScanPage(): JSX.Element {
       const remaining = lookupResult.gateUsage?.remainingCount ?? 0;
       return validity.canEnterGate && gateEntryCount >= 1 && gateEntryCount <= remaining;
     }
+    if (mode === "checkout") return Boolean(validity.canCheckout);
     if (mode === "ride") return selectedRideId.length > 0 && validity.isValidStatus;
     return true;
   })();
@@ -329,6 +393,8 @@ export default function ScanPage(): JSX.Element {
   const validityWarning = (() => {
     if (!lookupResult) return null;
     const { validity } = lookupResult;
+    if (mode === "checkout" && lookupResult.booking.status === "COMPLETED") return "Guest is already checked out";
+    if (mode === "checkout" && lookupResult.booking.status !== "CHECKED_IN") return "Only checked-in bookings can be checked out";
     if (!validity.isValidDate) return "Ticket is NOT for today's date";
     if (!validity.isValidStatus) return `Booking status is ${lookupResult.booking.status} — entry not allowed`;
     if (mode === "gate" && lookupResult.gateUsage?.remainingCount === 0) return "All persons already entered for this booking";
@@ -364,6 +430,7 @@ export default function ScanPage(): JSX.Element {
                 className="w-full appearance-none border border-[var(--color-border)] rounded-xl px-4 py-2.5 pr-10 text-sm font-medium bg-[var(--color-surface)] text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <option value="gate">🚪  Gate Entry — mark CHECKED_IN on first scan</option>
+                <option value="checkout">✅  Checkout — mark CHECKED_IN customer as COMPLETED</option>
                 <option value="ride">🎢  Ride Access — verify &amp; decrement ride ticket count</option>
                 <option value="locker">🔐  Locker — verify locker assignment</option>
                 <option value="costume">👘  Costume — verify costume rental</option>
@@ -656,6 +723,16 @@ export default function ScanPage(): JSX.Element {
               {actionState.subText}
             </p>
           )}
+          {mode === "checkout" && lookupResult?.booking.status === "COMPLETED" ? (
+            <button
+              type="button"
+              onClick={() => void handleDeleteCompletedBooking()}
+              disabled={deletingBooking}
+              className="mt-2 inline-flex items-center justify-center rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
+            >
+              {deletingBooking ? "Deleting…" : "Delete Booking Permanently"}
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={reset}
@@ -672,6 +749,7 @@ export default function ScanPage(): JSX.Element {
       <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 text-xs text-[var(--color-text-muted)] space-y-1">
         <p className="font-semibold text-[var(--color-text)] mb-1">How to use</p>
         <p><span className="font-medium text-emerald-700">Gate Entry:</span> First-time scan marks booking CHECKED_IN. Re-scan shows a warning but still succeeds.</p>
+        <p><span className="font-medium text-orange-700">Checkout:</span> Scan checked-in booking to mark it COMPLETED.</p>
         <p><span className="font-medium text-blue-700">Ride Access:</span> Select the ride, then scan. Each confirm uses 1 ride entry. Limit = tickets purchased for that ride.</p>
         <p><span className="font-medium text-indigo-700">Locker / Costume:</span> Shows booking details for staff to cross-reference assignment records.</p>
         <p><span className="font-medium text-gray-600">Info Only:</span> Shows all booking details without changing any status.</p>
