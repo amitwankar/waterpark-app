@@ -95,6 +95,7 @@ export async function GET(
     return NextResponse.json({ message: "Booking not found" }, { status: 404 });
   }
   const parsedNotes = splitBookingNotes(booking.notes);
+  const preload = parsedNotes.meta?.posPreload ?? null;
 
   if (!isPublic) {
     const session = await auth.api.getSession({
@@ -118,6 +119,43 @@ export async function GET(
       }
     }
   }
+
+  const packageIds = Array.from(new Set((preload?.packageLines ?? []).map((line) => line.packageId)));
+  const foodIds = Array.from(new Set((preload?.foodLines ?? []).map((line) => line.foodItemId)));
+  const foodVariantIds = Array.from(
+    new Set((preload?.foodLines ?? []).map((line) => line.foodVariantId).filter((id): id is string => Boolean(id))),
+  );
+  const lockerCategoryIds = Array.from(new Set((preload?.lockerLines ?? []).map((line) => line.lockerCategoryId)));
+  const costumeIds = Array.from(new Set((preload?.costumeLines ?? []).map((line) => line.costumeItemId)));
+  const rideIds = Array.from(new Set((preload?.rideLines ?? []).map((line) => line.rideId)));
+
+  const [packages, foodItems, foodVariants, lockerCategories, costumes, rides] = await Promise.all([
+    packageIds.length
+      ? db.salesPackage.findMany({ where: { id: { in: packageIds } }, select: { id: true, name: true } })
+      : Promise.resolve([]),
+    foodIds.length
+      ? db.foodItem.findMany({ where: { id: { in: foodIds } }, select: { id: true, name: true } })
+      : Promise.resolve([]),
+    foodVariantIds.length
+      ? db.foodItemVariant.findMany({ where: { id: { in: foodVariantIds } }, select: { id: true, name: true } })
+      : Promise.resolve([]),
+    lockerCategoryIds.length
+      ? db.lockerCategory.findMany({ where: { id: { in: lockerCategoryIds } }, select: { id: true, name: true } })
+      : Promise.resolve([]),
+    costumeIds.length
+      ? db.costumeItem.findMany({ where: { id: { in: costumeIds } }, select: { id: true, name: true } })
+      : Promise.resolve([]),
+    rideIds.length
+      ? db.ride.findMany({ where: { id: { in: rideIds } }, select: { id: true, name: true } })
+      : Promise.resolve([]),
+  ]);
+
+  const packageMap = new Map(packages.map((item) => [item.id, item.name]));
+  const foodMap = new Map(foodItems.map((item) => [item.id, item.name]));
+  const foodVariantMap = new Map(foodVariants.map((item) => [item.id, item.name]));
+  const lockerCategoryMap = new Map(lockerCategories.map((item) => [item.id, item.name]));
+  const costumeMap = new Map(costumes.map((item) => [item.id, item.name]));
+  const rideMap = new Map(rides.map((item) => [item.id, item.name]));
 
   return NextResponse.json({
     booking: {
@@ -149,7 +187,32 @@ export async function GET(
       checkedInAt: booking.checkedInAt,
       qrCode: booking.qrCode,
       notes: parsedNotes.userNotes,
-      posPreload: parsedNotes.meta?.posPreload ?? null,
+      posPreload: preload,
+      posPreloadDetails: preload
+        ? {
+            packageLines: (preload.packageLines ?? []).map((line) => ({
+              ...line,
+              packageName: packageMap.get(line.packageId) ?? line.packageId,
+            })),
+            foodLines: (preload.foodLines ?? []).map((line) => ({
+              ...line,
+              foodItemName: foodMap.get(line.foodItemId) ?? line.foodItemId,
+              foodVariantName: line.foodVariantId ? (foodVariantMap.get(line.foodVariantId) ?? line.foodVariantId) : null,
+            })),
+            lockerLines: (preload.lockerLines ?? []).map((line) => ({
+              ...line,
+              lockerCategoryName: lockerCategoryMap.get(line.lockerCategoryId) ?? line.lockerCategoryId,
+            })),
+            costumeLines: (preload.costumeLines ?? []).map((line) => ({
+              ...line,
+              costumeItemName: costumeMap.get(line.costumeItemId) ?? line.costumeItemId,
+            })),
+            rideLines: (preload.rideLines ?? []).map((line) => ({
+              ...line,
+              rideName: rideMap.get(line.rideId) ?? line.rideId,
+            })),
+          }
+        : null,
       createdAt: booking.createdAt,
       updatedAt: booking.updatedAt,
       coupon: booking.coupon

@@ -30,6 +30,7 @@ const ticketLineSchema = z.object({
 const packageLineSchema = z.object({
   packageId: z.string().min(1),
   quantity: toInt.min(1).max(100),
+  priceIncludesGst: z.boolean().optional(),
 });
 
 const foodLineSchema = z.object({
@@ -268,10 +269,25 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return sum + Number(ticket.price) * line.quantity * (Number(ticket.gstRate ?? 0) / 100);
   }, 0);
 
-  const packageSubtotal = packageLines.reduce((sum, line) => sum + Number(packageMap.get(line.packageId)!.salePrice) * line.quantity, 0);
+  const packageSubtotal = packageLines.reduce((sum, line) => {
+    const pkg = packageMap.get(line.packageId)!;
+    const gross = Number(pkg.salePrice) * line.quantity;
+    const gstRate = Number(pkg.gstRate ?? 0);
+    if (line.priceIncludesGst) {
+      const base = gross / (1 + gstRate / 100);
+      return sum + base;
+    }
+    return sum + gross;
+  }, 0);
   const packageGstAmount = packageLines.reduce((sum, line) => {
     const pkg = packageMap.get(line.packageId)!;
-    return sum + Number(pkg.salePrice) * line.quantity * (Number(pkg.gstRate ?? 0) / 100);
+    const gross = Number(pkg.salePrice) * line.quantity;
+    const gstRate = Number(pkg.gstRate ?? 0);
+    if (line.priceIncludesGst) {
+      const base = gross / (1 + gstRate / 100);
+      return sum + (gross - base);
+    }
+    return sum + gross * (gstRate / 100);
   }, 0);
 
   const foodSubtotal = foodLines.reduce((sum, line) => {
@@ -336,7 +352,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const items = {
     tickets: storedTickets,
     posPreload: {
-      packageLines: packageLines.map((line) => ({ packageId: line.packageId, quantity: line.quantity })),
+      packageLines: packageLines.map((line) => ({ packageId: line.packageId, quantity: line.quantity, priceIncludesGst: Boolean(line.priceIncludesGst) })),
       foodLines: foodLines.map((line) => ({ foodItemId: line.foodItemId, foodVariantId: line.foodVariantId, quantity: line.quantity })),
       lockerLines: lockerLines.map((line) => ({
         lockerCategoryId: line.lockerCategoryId,

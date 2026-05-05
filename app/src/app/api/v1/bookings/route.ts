@@ -89,7 +89,15 @@ const bookingExtrasSchema = z
     smsOtpProofToken: z.string().trim().min(1).optional(),
     customDiscountType: z.enum(["NONE", "PERCENTAGE", "AMOUNT"]).optional(),
     customDiscountValue: z.number().min(0).max(1000000).optional(),
-    packageLines: z.array(z.object({ packageId: z.string().min(1), quantity: z.number().int().min(1).max(100) })).optional(),
+    packageLines: z
+      .array(
+        z.object({
+          packageId: z.string().min(1),
+          quantity: z.number().int().min(1).max(100),
+          priceIncludesGst: z.boolean().optional(),
+        }),
+      )
+      .optional(),
     foodLines: z
       .array(
         z.object({
@@ -413,12 +421,24 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const packageBaseAmount = packageLines.reduce((sum, line) => {
     const pkg = packageMap.get(line.packageId);
     if (!pkg) return sum;
-    return sum + Number(pkg.salePrice) * line.quantity;
+    const gross = Number(pkg.salePrice) * line.quantity;
+    const gstRate = Number(pkg.gstRate ?? parkConfig.defaultGstRate);
+    if (line.priceIncludesGst) {
+      const base = gross / (1 + gstRate / 100);
+      return sum + base;
+    }
+    return sum + gross;
   }, 0);
   const packageGstAmount = packageLines.reduce((sum, line) => {
     const pkg = packageMap.get(line.packageId);
     if (!pkg) return sum;
-    return sum + Number(pkg.salePrice) * line.quantity * (Number(pkg.gstRate) / 100);
+    const gross = Number(pkg.salePrice) * line.quantity;
+    const gstRate = Number(pkg.gstRate ?? parkConfig.defaultGstRate);
+    if (line.priceIncludesGst) {
+      const base = gross / (1 + gstRate / 100);
+      return sum + (gross - base);
+    }
+    return sum + gross * (gstRate / 100);
   }, 0);
 
   const foodBaseAmount = foodLines.reduce((sum, line) => {

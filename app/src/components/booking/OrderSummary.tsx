@@ -9,6 +9,7 @@ export interface OrderSummaryProps {
   discountAmount: number;
   totalAmount: number;
   gstRate: number;
+  showGstBreakup?: boolean;
   items?: OrderSummaryItem[];
 }
 
@@ -25,6 +26,7 @@ export function OrderSummary({
   discountAmount,
   totalAmount,
   gstRate,
+  showGstBreakup = true,
   items = [],
 }: OrderSummaryProps): JSX.Element {
   const amountBeforeDiscount = subtotal + discountAmount;
@@ -53,7 +55,7 @@ export function OrderSummary({
         <SummaryRow label="Amount" value={formatCurrency(amountBeforeDiscount)} />
         <SummaryRow label="Discount" value={`- ${formatCurrency(discountAmount)}`} />
         <SummaryRow label="Subtotal" value={formatCurrency(subtotal)} />
-        <SummaryRow label={`GST (${gstRate}%)`} value={formatCurrency(gstAmount)} />
+        {showGstBreakup ? <SummaryRow label={`GST (${gstRate}%)`} value={formatCurrency(gstAmount)} /> : null}
         <div className="h-px bg-[var(--color-border)]" />
         <SummaryRow label="Final Total" value={formatCurrency(totalAmount)} highlight />
       </CardBody>

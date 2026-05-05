@@ -42,7 +42,7 @@ type FormValues = {
   guestDob: string;
   guestAddress: string;
   visitDate: string;
-  packageLines: Array<{ packageId: string; quantity: number }>;
+  packageLines: Array<{ packageId: string; quantity: number; priceIncludesGst?: boolean }>;
   ticketLines: TicketLine[];
   couponCode: string;
   idProofType?: IdProofType;
@@ -87,6 +87,7 @@ interface ParkConfigLite {
   razorpayEnabled?: boolean;
   manualUpiEnabled?: boolean;
   queueVerificationMode?: "DISABLED" | "EMAIL" | "SMS" | "BOTH";
+  showGstBreakup?: boolean;
 }
 
 const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
@@ -179,6 +180,7 @@ export default function BookingPage(): JSX.Element {
   const [verifyingEmailOtp, setVerifyingEmailOtp] = useState(false);
   const [verifyingSmsOtp, setVerifyingSmsOtp] = useState(false);
   const [participants, setParticipants] = useState<ParticipantDraft[]>([]);
+  const [showGstBreakup, setShowGstBreakup] = useState(true);
   const [values, setValues] = useState<FormValues>({
     guestName: "",
     guestMobile: "",
@@ -186,7 +188,7 @@ export default function BookingPage(): JSX.Element {
     guestDob: "",
     guestAddress: "",
     visitDate: "",
-    packageLines: [{ packageId: "", quantity: 1 }],
+    packageLines: [{ packageId: "", quantity: 1, priceIncludesGst: false }],
     ticketLines: [],
     couponCode: "",
     idProofType: undefined,
@@ -226,6 +228,7 @@ export default function BookingPage(): JSX.Element {
       const response = await fetch("/api/v1/park-config", { method: "GET" });
       const payload = (await response.json().catch(() => null)) as ParkConfigLite | null;
       if (!response.ok || !payload) return;
+      setShowGstBreakup(payload.showGstBreakup !== false);
 
       const nextMethods: PaymentMethod[] = ["CASH", "CARD"];
       if (payload.manualUpiEnabled) nextMethods.push("MANUAL_UPI");
@@ -336,9 +339,15 @@ export default function BookingPage(): JSX.Element {
     for (const line of values.packageLines) {
       const pkg = packageMap.get(line.packageId);
       if (!pkg || line.quantity < 1) continue;
-      const base = pkg.salePrice * line.quantity;
-      subtotal += base;
-      gst += base * (pkg.gstRate / 100);
+      const gross = pkg.salePrice * line.quantity;
+      if (line.priceIncludesGst) {
+        const base = gross / (1 + pkg.gstRate / 100);
+        subtotal += base;
+        gst += gross - base;
+      } else {
+        subtotal += gross;
+        gst += gross * (pkg.gstRate / 100);
+      }
     }
     return { subtotal: Math.round(subtotal * 100) / 100, gst: Math.round(gst * 100) / 100 };
   }, [values.packageLines, packageMap]);
@@ -543,7 +552,7 @@ export default function BookingPage(): JSX.Element {
           guestDob: values.guestDob || undefined,
           guestAddress: values.guestAddress || undefined,
           visitDate: values.visitDate,
-          packageLines: values.packageLines.filter((l) => l.packageId && l.quantity > 0),
+          packageLines: values.packageLines.filter((l) => l.packageId && l.quantity > 0).map((l) => ({ ...l, priceIncludesGst: Boolean(l.priceIncludesGst) })),
           ticketLines: values.ticketLines,
           couponCode: sanitizeCouponCode(values.couponCode) ?? undefined,
           idProofType: values.idProofType,
@@ -834,6 +843,18 @@ export default function BookingPage(): JSX.Element {
                           Remove
                         </Button>
                       </div>
+                      <label className="inline-flex items-center gap-2 text-xs text-[var(--color-text-muted)]">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(line.priceIncludesGst)}
+                          onChange={(e) => {
+                            const next = [...values.packageLines];
+                            next[index] = { ...next[index]!, priceIncludesGst: e.target.checked };
+                            setValues((cur) => ({ ...cur, packageLines: next }));
+                          }}
+                        />
+                        Package price includes GST
+                      </label>
                       {selectedPkg && selectedPkg.items.length > 0 ? (
                         <div className="rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-xs text-[var(--color-text-muted)]">
                           <span className="font-semibold text-[var(--color-text)]">Includes: </span>
@@ -847,7 +868,7 @@ export default function BookingPage(): JSX.Element {
                 })}
                 <Button
                   variant="outline"
-                  onClick={() => setValues((cur) => ({ ...cur, packageLines: [...cur.packageLines, { packageId: "", quantity: 1 }] }))}
+                  onClick={() => setValues((cur) => ({ ...cur, packageLines: [...cur.packageLines, { packageId: "", quantity: 1, priceIncludesGst: false }] }))}
                 >
                   Add Package Line
                 </Button>
@@ -1032,6 +1053,7 @@ export default function BookingPage(): JSX.Element {
                 discountAmount={pricing.discountAmount}
                 totalAmount={pricing.totalAmount}
                 gstRate={ticketMap.get(values.ticketLines[0]?.ticketTypeId ?? "")?.gstRate ?? 18}
+                showGstBreakup={showGstBreakup}
               />
             </div>
           ) : null}

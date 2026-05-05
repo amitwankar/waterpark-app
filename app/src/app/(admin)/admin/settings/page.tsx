@@ -35,6 +35,7 @@ interface SettingsPayload {
   defaultGstRate: number | string;
   foodGstRate: number | string;
   lockerGstRate: number | string;
+  showGstBreakup?: boolean;
   gstNumber: string | null;
   invoicePrefix: string;
   invoiceStartNumber: number;
@@ -232,6 +233,7 @@ export default function SettingsPage(): JSX.Element {
               defaultGstRate: toNumber(settings.defaultGstRate),
               foodGstRate: toNumber(settings.foodGstRate),
               lockerGstRate: toNumber(settings.lockerGstRate),
+              showGstBreakup: settings.showGstBreakup !== false,
               gstNumber: settings.gstNumber ?? "",
               invoicePrefix: settings.invoicePrefix,
               invoiceStartNumber: settings.invoiceStartNumber,

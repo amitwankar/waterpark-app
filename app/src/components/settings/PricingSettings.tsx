@@ -12,6 +12,7 @@ export interface PricingSettingsValue {
   defaultGstRate: number;
   foodGstRate: number;
   lockerGstRate: number;
+  showGstBreakup: boolean;
   gstNumber: string;
   invoicePrefix: string;
   invoiceStartNumber: number;
@@ -56,6 +57,10 @@ export function PricingSettings({ initialValue, onSaved, onDirtyChange }: Pricin
           <Input label="GSTIN" value={form.gstNumber} onChange={(event) => update("gstNumber", event.target.value.toUpperCase())} />
           <Input label="Invoice Prefix" value={form.invoicePrefix} onChange={(event) => update("invoicePrefix", event.target.value)} />
           <Input label="Invoice Start Number" type="number" value={String(form.invoiceStartNumber)} onChange={(event) => update("invoiceStartNumber", Number(event.target.value || 1))} />
+        </div>
+        <div className="flex items-center gap-2 rounded-[var(--radius-md)] border border-[var(--color-border)] p-3">
+          <input id="showGstBreakup" type="checkbox" checked={form.showGstBreakup} onChange={(event) => update("showGstBreakup", event.target.checked)} />
+          <label htmlFor="showGstBreakup" className="text-sm font-medium text-[var(--color-text)]">Show GST breakup across booking/POS/queue flows</label>
         </div>
 
         <div className="rounded-[var(--radius-lg)] border border-[var(--color-border)] p-4">

@@ -92,7 +92,7 @@ interface CreateBookingDraft {
   paymentReference: string;
   customDiscountType: "NONE" | "PERCENTAGE" | "AMOUNT";
   customDiscountValue: number;
-  packageLines: Array<{ packageId: string; quantity: number }>;
+  packageLines: Array<{ packageId: string; quantity: number; priceIncludesGst?: boolean }>;
   foodLines: Array<{ foodItemId: string; foodVariantId?: string; quantity: number }>;
   lockerLines: Array<{ lockerId: string; quantity: number }>;
   costumeLines: Array<{ costumeItemId: string; quantity: number }>;
@@ -288,7 +288,11 @@ export default function AdminBookingsPage(): JSX.Element {
   const [costumeOptions, setCostumeOptions] = useState<CostumeOption[]>([]);
   const [rideOptions, setRideOptions] = useState<RideOption[]>([]);
   const [dateRange, setDateRange] = useState<{ min: string; max: string }>({ min: "", max: "" });
-  const [packagePicker, setPackagePicker] = useState<{ packageId: string; quantity: string }>({ packageId: "", quantity: "1" });
+  const [packagePicker, setPackagePicker] = useState<{ packageId: string; quantity: string; priceIncludesGst: boolean }>({
+    packageId: "",
+    quantity: "1",
+    priceIncludesGst: false,
+  });
   const [foodPicker, setFoodPicker] = useState<{ id: string; quantity: string }>({ id: "", quantity: "1" });
   const [lockerPicker, setLockerPicker] = useState<{ lockerId: string; quantity: string }>({ lockerId: "", quantity: "1" });
   const [costumePicker, setCostumePicker] = useState<{ costumeItemId: string; quantity: string }>({ costumeItemId: "", quantity: "1" });
@@ -363,7 +367,11 @@ export default function AdminBookingsPage(): JSX.Element {
     const packageAmount = createDraft.packageLines.reduce((sum, line) => {
       const selected = packageOptions.find((item) => item.id === line.packageId);
       if (!selected) return sum;
-      return sum + selected.salePrice * line.quantity * (1 + selected.gstRate / 100);
+      const gross = selected.salePrice * line.quantity;
+      if (line.priceIncludesGst) {
+        return sum + gross;
+      }
+      return sum + gross * (1 + selected.gstRate / 100);
     }, 0);
     const foodAmount = createDraft.foodLines.reduce((sum, line) => {
       const optionId = line.foodVariantId ? `${line.foodItemId}__${line.foodVariantId}` : line.foodItemId;
@@ -674,7 +682,10 @@ export default function AdminBookingsPage(): JSX.Element {
     const quantity = Math.max(1, Number(packagePicker.quantity || "1"));
     setCreateDraft((current) => ({
       ...current,
-      packageLines: [...current.packageLines, { packageId: packagePicker.packageId, quantity }],
+      packageLines: [
+        ...current.packageLines,
+        { packageId: packagePicker.packageId, quantity, priceIncludesGst: packagePicker.priceIncludesGst },
+      ],
     }));
   }
 
@@ -719,7 +730,7 @@ export default function AdminBookingsPage(): JSX.Element {
     }));
   }
 
-  function updatePackageLine(index: number, patch: Partial<{ packageId: string; quantity: number }>): void {
+  function updatePackageLine(index: number, patch: Partial<{ packageId: string; quantity: number; priceIncludesGst: boolean }>): void {
     setCreateDraft((current) => ({
       ...current,
       packageLines: current.packageLines.map((line, rowIndex) =>
@@ -727,6 +738,7 @@ export default function AdminBookingsPage(): JSX.Element {
           ? {
               packageId: patch.packageId ?? line.packageId,
               quantity: patch.quantity ?? line.quantity,
+              priceIncludesGst: patch.priceIncludesGst ?? line.priceIncludesGst ?? false,
             }
           : line,
       ),
@@ -1296,27 +1308,43 @@ export default function AdminBookingsPage(): JSX.Element {
                   <Button variant="outline" onClick={addPackageLine}>Add Package</Button>
                 </div>
               </div>
+              <label className="inline-flex items-center gap-2 text-xs text-[var(--color-text-muted)]">
+                <input
+                  type="checkbox"
+                  checked={packagePicker.priceIncludesGst}
+                  onChange={(event) => setPackagePicker((current) => ({ ...current, priceIncludesGst: event.target.checked }))}
+                />
+                Package price already includes GST
+              </label>
 
               <div className="rounded-[var(--radius-md)] border border-[var(--color-border)] p-3 space-y-3">
                 <p className="text-xs font-medium text-[var(--color-text-muted)]">Selected Packages</p>
                 {createDraft.packageLines.length > 0 ? (
                   <div className="space-y-2">
                     {createDraft.packageLines.map((line, index) => (
-                      <div key={`pkg-step2-${index}`} className="grid gap-2 md:grid-cols-[1fr_90px_auto]">
+                      <div key={`pkg-step2-${index}`} className="grid gap-2 md:grid-cols-[1fr_90px_130px_auto]">
                         <Select
                           value={line.packageId}
                           onChange={(event) => updatePackageLine(index, { packageId: event.target.value })}
                           options={packageOptions.map((item) => ({ label: `${item.name} (₹${item.salePrice})`, value: item.id }))}
                         />
-                        <Input
-                          type="number"
-                          min={1}
-                          value={String(line.quantity)}
-                          onChange={(event) => updatePackageLine(index, { quantity: Math.max(1, Number(event.target.value || 1)) })}
-                        />
-                        <Button
-                          variant="ghost"
-                          className="text-red-600"
+                          <Input
+                            type="number"
+                            min={1}
+                            value={String(line.quantity)}
+                            onChange={(event) => updatePackageLine(index, { quantity: Math.max(1, Number(event.target.value || 1)) })}
+                          />
+                          <label className="inline-flex items-center gap-2 text-xs text-[var(--color-text-muted)]">
+                            <input
+                              type="checkbox"
+                              checked={Boolean(line.priceIncludesGst)}
+                              onChange={(event) => updatePackageLine(index, { priceIncludesGst: event.target.checked })}
+                            />
+                            GST Included
+                          </label>
+                          <Button
+                            variant="ghost"
+                            className="text-red-600"
                           onClick={() =>
                             setCreateDraft((current) => ({
                               ...current,
@@ -1427,6 +1455,14 @@ export default function AdminBookingsPage(): JSX.Element {
                       <Button variant="outline" onClick={addPackageLine}>Add Package</Button>
                     </div>
                   </div>
+                  <label className="inline-flex items-center gap-2 text-xs text-[var(--color-text-muted)]">
+                    <input
+                      type="checkbox"
+                      checked={packagePicker.priceIncludesGst}
+                      onChange={(event) => setPackagePicker((current) => ({ ...current, priceIncludesGst: event.target.checked }))}
+                    />
+                    Package price already includes GST
+                  </label>
 
                   <div className="grid gap-3 md:grid-cols-[1fr_120px_auto]">
                     <Select
@@ -1511,7 +1547,7 @@ export default function AdminBookingsPage(): JSX.Element {
                       <div className="space-y-2">
                         <p className="text-xs font-semibold text-[var(--color-text)]">Packages</p>
                         {createDraft.packageLines.map((line, index) => (
-                          <div key={`pkg-${index}`} className="grid gap-2 md:grid-cols-[1fr_90px_auto]">
+                          <div key={`pkg-${index}`} className="grid gap-2 md:grid-cols-[1fr_90px_130px_auto]">
                             <Select
                               value={line.packageId}
                               onChange={(event) => updatePackageLine(index, { packageId: event.target.value })}
@@ -1523,6 +1559,14 @@ export default function AdminBookingsPage(): JSX.Element {
                               value={String(line.quantity)}
                               onChange={(event) => updatePackageLine(index, { quantity: Math.max(1, Number(event.target.value || 1)) })}
                             />
+                            <label className="inline-flex items-center gap-2 text-xs text-[var(--color-text-muted)]">
+                              <input
+                                type="checkbox"
+                                checked={Boolean(line.priceIncludesGst)}
+                                onChange={(event) => updatePackageLine(index, { priceIncludesGst: event.target.checked })}
+                              />
+                              GST Included
+                            </label>
                             <Button
                               variant="ghost"
                               className="text-red-600"

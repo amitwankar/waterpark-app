@@ -441,6 +441,7 @@ model ParkConfig {
   defaultGstRate     Decimal @default(18) @map("default_gst_rate") @db.Decimal(5, 2)
   foodGstRate        Decimal @default(5) @map("food_gst_rate") @db.Decimal(5, 2)
   lockerGstRate      Decimal @default(18) @map("locker_gst_rate") @db.Decimal(5, 2)
+  showGstBreakup     Boolean @default(true) @map("show_gst_breakup")
   gstNumber          String? @map("gst_number") // GSTIN 15-char
   invoicePrefix      String  @default("INV") @map("invoice_prefix")
   invoiceStartNumber Int     @default(1000) @map("invoice_start_number")

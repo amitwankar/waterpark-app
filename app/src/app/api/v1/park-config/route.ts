@@ -20,6 +20,7 @@ export async function GET(): Promise<NextResponse> {
       maxSplitMethods: true,
       minSplitAmount: true,
       defaultGstRate: true,
+      showGstBreakup: true,
       maxCapacityPerDay: true,
       idProofEnabled: true,
       idProofRequiredAbove: true,

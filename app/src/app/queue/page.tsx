@@ -44,6 +44,7 @@ type QueueOptionsResponse = {
     prefix: string;
     todayCount: number;
     verificationMode: "DISABLED" | "EMAIL" | "SMS" | "BOTH";
+    showGstBreakup?: boolean;
   };
   tickets: TicketOption[];
   packages: PackageOption[];
@@ -88,7 +89,7 @@ export default function PublicQueuePage(): JSX.Element {
   const [smsOtpProofToken, setSmsOtpProofToken] = useState<string | null>(null);
 
   const [ticketLines, setTicketLines] = useState<Array<{ ticketTypeId: string; quantity: string }>>([]);
-  const [packageLines, setPackageLines] = useState<Array<{ packageId: string; quantity: string }>>([{ packageId: "", quantity: "1" }]);
+  const [packageLines, setPackageLines] = useState<Array<{ packageId: string; quantity: string; priceIncludesGst?: boolean }>>([{ packageId: "", quantity: "1", priceIncludesGst: false }]);
   const [foodLines, setFoodLines] = useState<Array<{ optionId: string; quantity: string }>>([]);
   const [lockerLines, setLockerLines] = useState<Array<{ lockerCategoryId: string; quantity: string }>>([]);
   const [costumeLines, setCostumeLines] = useState<Array<{ costumeItemId: string; quantity: string }>>([]);
@@ -163,8 +164,15 @@ export default function PublicQueuePage(): JSX.Element {
       const p = packageMap.get(line.packageId);
       if (!p) continue;
       const qty = Math.max(1, Number(line.quantity || "1"));
-      subtotal += p.salePrice * qty;
-      gst += p.salePrice * qty * (p.gstRate / 100);
+      const gross = p.salePrice * qty;
+      if (line.priceIncludesGst) {
+        const base = gross / (1 + p.gstRate / 100);
+        subtotal += base;
+        gst += gross - base;
+      } else {
+        subtotal += gross;
+        gst += gross * (p.gstRate / 100);
+      }
       cartItems.push({
         key: `package-${line.packageId}-${cartItems.length}`,
         section: "Packages",
@@ -348,7 +356,7 @@ export default function PublicQueuePage(): JSX.Element {
           .map((l) => ({ ticketTypeId: l.ticketTypeId, quantity: Math.max(1, Number(l.quantity || "1")) })),
         packageLines: packageLines
           .filter((l) => l.packageId)
-          .map((l) => ({ packageId: l.packageId, quantity: Math.max(1, Number(l.quantity || "1")) })),
+          .map((l) => ({ packageId: l.packageId, quantity: Math.max(1, Number(l.quantity || "1")), priceIncludesGst: Boolean(l.priceIncludesGst) })),
         foodLines: foodLines
           .filter((l) => l.optionId)
           .map((l) => {
@@ -447,7 +455,7 @@ export default function PublicQueuePage(): JSX.Element {
                   <span className="font-semibold text-[var(--color-text)]">{formatCurrency(created.subtotal)}</span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-[var(--color-text-muted)]">GST</span>
+                  <span className="text-[var(--color-text-muted)]">{(options?.queue.showGstBreakup ?? true) ? "GST" : "Tax"}</span>
                   <span className="font-semibold text-[var(--color-text)]">{formatCurrency(created.gstAmount)}</span>
                 </div>
                 <div className="flex items-center justify-between border-t border-[var(--color-border)] pt-2">
@@ -568,7 +576,7 @@ export default function PublicQueuePage(): JSX.Element {
                 const selectedPkg = (options?.packages ?? []).find((p) => p.id === line.packageId);
                 return (
                   <div key={`p-${index}`} className="space-y-2">
-                    <div className="grid gap-3 md:grid-cols-[1fr_140px_auto] items-end">
+                      <div className="grid gap-3 md:grid-cols-[1fr_140px_auto] items-end">
                       <Select
                         label="Package"
                         value={line.packageId}
@@ -595,7 +603,7 @@ export default function PublicQueuePage(): JSX.Element {
                         Remove
                       </Button>
                     </div>
-                    {selectedPkg && selectedPkg.items.length > 0 && (
+                    {selectedPkg && selectedPkg.items.length > 0 ? (
                       <div className="rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface-muted,var(--color-surface))] px-3 py-2">
                         <p className="text-xs font-semibold text-[var(--color-text-muted)] mb-1.5">What&apos;s included:</p>
                         <div className="flex flex-wrap gap-x-4 gap-y-1">
@@ -606,11 +614,23 @@ export default function PublicQueuePage(): JSX.Element {
                           ))}
                         </div>
                       </div>
-                    )}
+                    ) : null}
+                    <label className="inline-flex items-center gap-2 text-xs text-[var(--color-text-muted)]">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(line.priceIncludesGst)}
+                        onChange={(event) => {
+                          const next = [...packageLines];
+                          next[index] = { ...next[index]!, priceIncludesGst: event.target.checked };
+                          setPackageLines(next);
+                        }}
+                      />
+                      Package price includes GST
+                    </label>
                   </div>
                 );
               })}
-              <Button variant="outline" onClick={() => setPackageLines((prev) => [...prev, { packageId: "", quantity: "1" }])}>
+              <Button variant="outline" onClick={() => setPackageLines((prev) => [...prev, { packageId: "", quantity: "1", priceIncludesGst: false }])}>
                 Add Package Line
               </Button>
             </CardBody>
@@ -851,10 +871,12 @@ export default function PublicQueuePage(): JSX.Element {
                 <span className="text-[var(--color-text-muted)]">Subtotal</span>
                 <span className="font-semibold text-[var(--color-text)]">{formatCurrency(totals.subtotal)}</span>
               </div>
-              <div className="flex items-center justify-between">
-                <span className="text-[var(--color-text-muted)]">GST</span>
-                <span className="font-semibold text-[var(--color-text)]">{formatCurrency(totals.gst)}</span>
-              </div>
+              {(options?.queue.showGstBreakup ?? true) ? (
+                <div className="flex items-center justify-between">
+                  <span className="text-[var(--color-text-muted)]">GST</span>
+                  <span className="font-semibold text-[var(--color-text)]">{formatCurrency(totals.gst)}</span>
+                </div>
+              ) : null}
               <div className="flex items-center justify-between border-t border-[var(--color-border)] pt-2">
                 <span className="text-[var(--color-text)] font-semibold">Total</span>
                 <span className="text-[var(--color-text)] font-semibold">{formatCurrency(totals.total)}</span>
@@ -875,4 +897,3 @@ export default function PublicQueuePage(): JSX.Element {
     </div>
   );
 }
-

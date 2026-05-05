@@ -181,6 +181,8 @@ export function TicketTerminal({
   const [packageOptions, setPackageOptions] = useState<PackageOption[]>([]);
   const [packageId, setPackageId] = useState("");
   const [packageQty, setPackageQty] = useState("1");
+  const [packagePriceIncludesGst, setPackagePriceIncludesGst] = useState(false);
+  const [showGstBreakup, setShowGstBreakup] = useState(true);
   const [packageLines, setPackageLines] = useState<Array<{
     packageId: string;
     name: string;
@@ -188,6 +190,7 @@ export function TicketTerminal({
     amount: number;
     baseAmount: number;
     gstRate: number;
+    priceIncludesGst?: boolean;
     items: Array<{ itemType: string; quantity: number; label?: string }>;
   }>>([]);
 
@@ -419,7 +422,7 @@ export function TicketTerminal({
       fetch("/api/v1/park-config")
         .then(async (response) => {
           if (!response.ok) return null;
-          return (await response.json()) as { lockerGstRate?: number; defaultGstRate?: number };
+          return (await response.json()) as { lockerGstRate?: number; defaultGstRate?: number; showGstBreakup?: boolean };
         })
         .catch(() => null),
     ]).then(([foods, lockers, costumes, rides, packages, templates, paymentOptions, parkConfig]) => {
@@ -452,6 +455,7 @@ export function TicketTerminal({
       if (typeof parkConfig?.defaultGstRate === "number") {
         setDefaultGstRate(parkConfig.defaultGstRate);
       }
+      setShowGstBreakup(parkConfig?.showGstBreakup !== false);
     });
   }, []);
 
@@ -653,6 +657,7 @@ export function TicketTerminal({
           packageLines: packageLines.map((line) => ({
             packageId: line.packageId,
             quantity: line.quantity,
+            priceIncludesGst: Boolean(line.priceIncludesGst),
           })),
           foodLines: foodLines.map((line) => ({
             foodItemId: line.foodItemId,
@@ -876,6 +881,7 @@ export function TicketTerminal({
           amount,
           baseAmount,
           gstRate: selected.gstRate,
+          priceIncludesGst: false,
           items: selected.items ?? [],
         },
       ]);
@@ -1102,8 +1108,9 @@ export function TicketTerminal({
       return;
     }
     const quantity = Math.max(1, Number(packageQty || "1"));
-    const baseAmount = Math.round(selected.salePrice * quantity * 100) / 100;
-    const amount = Math.round(baseAmount * (1 + selected.gstRate / 100) * 100) / 100;
+    const gross = Math.round(selected.salePrice * quantity * 100) / 100;
+    const baseAmount = packagePriceIncludesGst ? Math.round((gross / (1 + selected.gstRate / 100)) * 100) / 100 : gross;
+    const amount = packagePriceIncludesGst ? gross : Math.round(baseAmount * (1 + selected.gstRate / 100) * 100) / 100;
     setPackageLines((prev) => [
       ...prev,
       {
@@ -1113,6 +1120,7 @@ export function TicketTerminal({
         amount,
         baseAmount,
         gstRate: selected.gstRate,
+        priceIncludesGst: packagePriceIncludesGst,
         items: selected.items ?? [],
       },
     ]);
@@ -1652,6 +1660,14 @@ export function TicketTerminal({
                     className="border border-gray-200 rounded px-2 py-2 text-sm"
                   />
                 </div>
+                <label className="inline-flex items-center gap-2 text-xs text-gray-600">
+                  <input
+                    type="checkbox"
+                    checked={packagePriceIncludesGst}
+                    onChange={(e) => setPackagePriceIncludesGst(e.target.checked)}
+                  />
+                  Package price includes GST
+                </label>
                 {packageId ? (
                   <div className="rounded-lg border border-gray-100 bg-gray-50 p-2 text-xs text-gray-600">
                     {(packageOptions.find((item) => item.id === packageId)?.items ?? []).map((item, index) => (
@@ -1948,7 +1964,11 @@ export function TicketTerminal({
                         <div className="flex items-center justify-between gap-2">
                           <div>
                             <p className="font-medium text-gray-700">{line.name}</p>
-                            <p className="text-gray-500">Qty {line.quantity} · GST {line.gstRate}%</p>
+                            <p className="text-gray-500">
+                              Qty {line.quantity}
+                              {showGstBreakup ? ` · GST ${line.gstRate}%` : ""}
+                              {line.priceIncludesGst ? " · GST Included" : ""}
+                            </p>
                           </div>
                           <div className="flex items-center gap-2">
                             <span className="font-semibold text-gray-800">₹{line.amount.toFixed(2)}</span>
@@ -2062,7 +2082,7 @@ export function TicketTerminal({
                       <p>Locker: ₹{lockerTotal.toFixed(2)}</p>
                       <p>Costume: ₹{costumeTotal.toFixed(2)}</p>
                       {rideTotal > 0 && <p>Ride: ₹{rideTotal.toFixed(2)}</p>}
-                      {addOnGstAmount > 0 && <p>Add-on GST: ₹{addOnGstAmount.toFixed(2)}</p>}
+                      {showGstBreakup && addOnGstAmount > 0 ? <p>Add-on GST: ₹{addOnGstAmount.toFixed(2)}</p> : null}
                     </div>
                   </div>
                 ) : null}

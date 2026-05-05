@@ -46,6 +46,13 @@ interface BookingDetail {
     costumeLines?: Array<{ costumeItemId: string; quantity: number }>;
     rideLines?: Array<{ rideId: string; quantity: number }>;
   } | null;
+  posPreloadDetails?: {
+    packageLines?: Array<{ packageId: string; packageName: string; quantity: number }>;
+    foodLines?: Array<{ foodItemId: string; foodItemName: string; foodVariantId?: string; foodVariantName?: string | null; quantity: number }>;
+    lockerLines?: Array<{ lockerCategoryId: string; lockerCategoryName: string; quantity: number }>;
+    costumeLines?: Array<{ costumeItemId: string; costumeItemName: string; quantity: number }>;
+    rideLines?: Array<{ rideId: string; rideName: string; quantity: number }>;
+  } | null;
   bookingTickets: Array<{
     id: string;
     quantity: number;
@@ -179,26 +186,28 @@ function AdminBookingDetailContent(): JSX.Element {
             <div className="rounded-[var(--radius-lg)] border border-[var(--color-border)] p-3">
               <h3 className="mb-2 text-sm font-semibold text-[var(--color-text)]">Packages / Add-ons</h3>
               <div className="space-y-1 text-sm text-[var(--color-text-muted)]">
-                {(booking.posPreload?.packageLines ?? []).map((line, index) => (
-                  <p key={`pkg-${index}`}>Package {line.packageId} x {line.quantity}</p>
+                {(booking.posPreloadDetails?.packageLines ?? []).map((line, index) => (
+                  <p key={`pkg-${index}`}>Package {line.packageName} x {line.quantity}</p>
                 ))}
-                {(booking.posPreload?.foodLines ?? []).map((line, index) => (
-                  <p key={`food-${index}`}>Food {line.foodItemId}{line.foodVariantId ? ` / ${line.foodVariantId}` : ""} x {line.quantity}</p>
+                {(booking.posPreloadDetails?.foodLines ?? []).map((line, index) => (
+                  <p key={`food-${index}`}>
+                    Food {line.foodItemName}{line.foodVariantName ? ` / ${line.foodVariantName}` : ""} x {line.quantity}
+                  </p>
                 ))}
-                {(booking.posPreload?.lockerLines ?? []).map((line, index) => (
-                  <p key={`locker-${index}`}>Locker Category {line.lockerCategoryId} x {line.quantity}</p>
+                {(booking.posPreloadDetails?.lockerLines ?? []).map((line, index) => (
+                  <p key={`locker-${index}`}>Locker Category {line.lockerCategoryName} x {line.quantity}</p>
                 ))}
-                {(booking.posPreload?.costumeLines ?? []).map((line, index) => (
-                  <p key={`costume-${index}`}>Costume {line.costumeItemId} x {line.quantity}</p>
+                {(booking.posPreloadDetails?.costumeLines ?? []).map((line, index) => (
+                  <p key={`costume-${index}`}>Costume {line.costumeItemName} x {line.quantity}</p>
                 ))}
-                {(booking.posPreload?.rideLines ?? []).map((line, index) => (
-                  <p key={`ride-${index}`}>Ride {line.rideId} x {line.quantity}</p>
+                {(booking.posPreloadDetails?.rideLines ?? []).map((line, index) => (
+                  <p key={`ride-${index}`}>Ride {line.rideName} x {line.quantity}</p>
                 ))}
-                {(booking.posPreload?.packageLines?.length ?? 0) === 0 &&
-                (booking.posPreload?.foodLines?.length ?? 0) === 0 &&
-                (booking.posPreload?.lockerLines?.length ?? 0) === 0 &&
-                (booking.posPreload?.costumeLines?.length ?? 0) === 0 &&
-                (booking.posPreload?.rideLines?.length ?? 0) === 0 ? (
+                {(booking.posPreloadDetails?.packageLines?.length ?? 0) === 0 &&
+                (booking.posPreloadDetails?.foodLines?.length ?? 0) === 0 &&
+                (booking.posPreloadDetails?.lockerLines?.length ?? 0) === 0 &&
+                (booking.posPreloadDetails?.costumeLines?.length ?? 0) === 0 &&
+                (booking.posPreloadDetails?.rideLines?.length ?? 0) === 0 ? (
                   <p>No package/add-on lines.</p>
                 ) : null}
               </div>

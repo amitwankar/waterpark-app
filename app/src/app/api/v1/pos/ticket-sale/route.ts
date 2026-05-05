@@ -60,6 +60,7 @@ const rideLineSchema = z.object({
 const packageLineSchema = z.object({
   packageId: z.string().min(1),
   quantity: z.number().int().min(1),
+  priceIncludesGst: z.boolean().optional(),
 });
 
 const participantSchema = z.object({
@@ -326,12 +327,15 @@ export async function POST(req: NextRequest) {
         });
       }
     }
+    const gross = Number(pkg.salePrice);
+    const gstRate = Number(pkg.gstRate);
+    const unitBasePrice = line.priceIncludesGst ? gross / (1 + gstRate / 100) : gross;
     return {
       ticketTypeId: pkg.id,
       name: pkg.name,
       quantity: line.quantity,
-      unitPrice: Number(pkg.salePrice),
-      gstRate: Number(pkg.gstRate),
+      unitPrice: unitBasePrice,
+      gstRate,
     };
   });
   const allTicketItems = [...items, ...expandedTicketLines];

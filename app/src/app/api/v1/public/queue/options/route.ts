@@ -45,6 +45,7 @@ export async function GET() {
         queueLimitPerDay: true,
         queuePrefix: true,
         queueVerificationMode: true,
+        showGstBreakup: true,
       },
     }),
     db.ticketType.findMany({
@@ -162,6 +163,7 @@ export async function GET() {
       prefix: normalizeQueuePrefix(config?.queuePrefix),
       todayCount: queueCountToday,
       verificationMode: normalizeQueueVerificationMode(config?.queueVerificationMode),
+      showGstBreakup: config?.showGstBreakup !== false,
     },
     tickets: ticketTypes.map((t) => ({
       id: t.id,
