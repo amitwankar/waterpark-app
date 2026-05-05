@@ -86,7 +86,14 @@ jobs:
             log_step "Applying database schema changes"
             if [ -d "prisma/migrations" ] && [ "$(find prisma/migrations -mindepth 1 -maxdepth 1 -type d | wc -l)" -gt 0 ]; then
               echo "[deploy] Migration folders detected; running prisma migrate deploy"
+              set +e
               npx prisma migrate deploy --schema prisma/schema.prisma
+              MIGRATE_EXIT=$?
+              set -e
+              if [ "$MIGRATE_EXIT" -ne 0 ]; then
+                echo "[deploy][warn] prisma migrate deploy failed (exit $MIGRATE_EXIT); falling back to prisma db push"
+                npx prisma db push --skip-generate --schema prisma/schema.prisma
+              fi
             else
               echo "[deploy][warn] No prisma migration folders found; falling back to prisma db push"
               npx prisma db push --skip-generate --schema prisma/schema.prisma
