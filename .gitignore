@@ -13,3 +13,4 @@ postgres/data/
 app/public/uploads/
 .vscode/
 .idea/
+.claude
