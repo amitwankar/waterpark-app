@@ -84,32 +84,34 @@ jobs:
             npx prisma generate --schema prisma/schema.prisma || echo "[deploy][warn] prisma generate returned non-zero; continuing to build for diagnostics"
 
             log_step "Applying database schema changes"
-            MIGRATE_EXIT=99
-            DBPUSH_EXIT=99
+            MIGRATE_OK=0
+            DBPUSH_OK=0
 
-            if [ -d "prisma/migrations" ] && [ "$(find prisma/migrations -mindepth 1 -maxdepth 1 -type d | wc -l)" -gt 0 ]; then
+            if [ -d "prisma/migrations" ] && find prisma/migrations -mindepth 1 -maxdepth 1 -type d | grep -q .; then
               echo "[deploy] Migration folders detected; trying prisma migrate deploy"
-              set +e
-              npx prisma migrate deploy --schema prisma/schema.prisma
-              MIGRATE_EXIT=$?
-              set -e
-              echo "[deploy] prisma migrate deploy exit code: $MIGRATE_EXIT"
+              if npx prisma migrate deploy --schema prisma/schema.prisma; then
+                MIGRATE_OK=1
+                echo "[deploy] prisma migrate deploy succeeded"
+              else
+                echo "[deploy][warn] prisma migrate deploy failed"
+              fi
             else
               echo "[deploy][warn] No prisma migration folders found; skipping migrate deploy"
             fi
 
-            if [ "$MIGRATE_EXIT" -ne 0 ]; then
+            if [ "$MIGRATE_OK" -ne 1 ]; then
               echo "[deploy] Trying prisma db push fallback"
-              set +e
-              npx prisma db push --skip-generate --schema prisma/schema.prisma
-              DBPUSH_EXIT=$?
-              set -e
-              echo "[deploy] prisma db push exit code: $DBPUSH_EXIT"
+              if npx prisma db push --skip-generate --schema prisma/schema.prisma; then
+                DBPUSH_OK=1
+                echo "[deploy] prisma db push succeeded"
+              else
+                echo "[deploy][error] prisma db push failed"
+              fi
             else
-              DBPUSH_EXIT=0
+              DBPUSH_OK=1
             fi
 
-            if [ "$MIGRATE_EXIT" -ne 0 ] && [ "$DBPUSH_EXIT" -ne 0 ]; then
+            if [ "$MIGRATE_OK" -ne 1 ] && [ "$DBPUSH_OK" -ne 1 ]; then
               echo "[deploy][error] Both prisma migrate deploy and prisma db push failed"
               exit 1
             fi
