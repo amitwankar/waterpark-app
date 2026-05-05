@@ -83,8 +83,14 @@ jobs:
             log_step "Generating Prisma client"
             npx prisma generate --schema prisma/schema.prisma || echo "[deploy][warn] prisma generate returned non-zero; continuing to build for diagnostics"
 
-            log_step "Applying non-destructive database schema changes"
-            npx prisma db push --skip-generate --schema prisma/schema.prisma
+            log_step "Applying database schema changes"
+            if [ -d "prisma/migrations" ] && [ "$(find prisma/migrations -mindepth 1 -maxdepth 1 -type d | wc -l)" -gt 0 ]; then
+              echo "[deploy] Migration folders detected; running prisma migrate deploy"
+              npx prisma migrate deploy --schema prisma/schema.prisma
+            else
+              echo "[deploy][warn] No prisma migration folders found; falling back to prisma db push"
+              npx prisma db push --skip-generate --schema prisma/schema.prisma
+            fi
             log_step "Seed skipped in CI deploy (production data safety)"
 
             log_step "Building Next.js app"
