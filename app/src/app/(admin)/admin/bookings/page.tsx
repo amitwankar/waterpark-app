@@ -35,6 +35,7 @@ interface BookingItem {
   visitDate: string;
   adults: number;
   children: number;
+  bookingTickets?: Array<{ quantity: number }>;
   totalAmount: number;
   status: string;
   notes?: string | null;
@@ -47,6 +48,18 @@ interface BookingListResponse {
     limit: number;
     total: number;
     totalPages: number;
+  };
+}
+
+interface MyBookingSummaryResponse {
+  summary: {
+    todayCreated: number;
+    yesterdayCreated: number;
+    upcomingVisits: number;
+    totalMine: number;
+    todayPax: number;
+    yesterdayPax: number;
+    upcomingPax: number;
   };
 }
 
@@ -255,6 +268,7 @@ export default function AdminBookingsPage(): JSX.Element {
 
   const [items, setItems] = useState<BookingItem[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
+  const [mySummary, setMySummary] = useState<MyBookingSummaryResponse["summary"] | null>(null);
   const [search, setSearch] = useState<string>("");
   const [status, setStatus] = useState<string>("");
   const [fromDate, setFromDate] = useState<string>(getTodayDateInputValue);
@@ -453,6 +467,16 @@ export default function AdminBookingsPage(): JSX.Element {
     }
   }
 
+  async function loadMySummary(): Promise<void> {
+    const response = await fetch("/api/v1/bookings?source=PREBOOKING&summary=mine");
+    const payload = (await response.json().catch(() => null)) as MyBookingSummaryResponse | null;
+    if (!response.ok || !payload?.summary) {
+      setMySummary(null);
+      return;
+    }
+    setMySummary(payload.summary);
+  }
+
   async function loadTicketTypes(): Promise<void> {
     const response = await fetch("/api/v1/ticket-types?activeOnly=true");
     const payload = (await response.json().catch(() => [])) as TicketType[];
@@ -591,6 +615,7 @@ export default function AdminBookingsPage(): JSX.Element {
   useEffect(() => {
     void loadTicketTypes();
     void loadBookingAddOnOptions();
+    void loadMySummary();
   }, []);
 
   function validateAddStep(nextStep: number): boolean {
@@ -807,7 +832,11 @@ export default function AdminBookingsPage(): JSX.Element {
     {
       key: "pax",
       header: "Pax",
-      render: (row) => `${row.adults + row.children} (${row.adults}A/${row.children}C)`,
+      render: (row) => {
+        const ticketPax = (row.bookingTickets ?? []).reduce((sum, line) => sum + Math.max(0, Number(line.quantity ?? 0)), 0);
+        const pax = ticketPax > 0 ? ticketPax : row.adults + row.children;
+        return `${pax} (${row.adults}A/${row.children}C)`;
+      },
     },
     {
       key: "amount",
@@ -1101,6 +1130,28 @@ export default function AdminBookingsPage(): JSX.Element {
           },
         ]}
       />
+
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
+          <p className="text-xs text-[var(--color-text-muted)]">My Bookings Today</p>
+          <p className="mt-1 text-2xl font-semibold text-[var(--color-text)]">{mySummary?.todayCreated ?? 0}</p>
+          <p className="text-xs text-[var(--color-text-muted)]">Pax: {mySummary?.todayPax ?? 0}</p>
+        </div>
+        <div className="rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
+          <p className="text-xs text-[var(--color-text-muted)]">My Bookings Yesterday</p>
+          <p className="mt-1 text-2xl font-semibold text-[var(--color-text)]">{mySummary?.yesterdayCreated ?? 0}</p>
+          <p className="text-xs text-[var(--color-text-muted)]">Pax: {mySummary?.yesterdayPax ?? 0}</p>
+        </div>
+        <div className="rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
+          <p className="text-xs text-[var(--color-text-muted)]">My Upcoming Visits</p>
+          <p className="mt-1 text-2xl font-semibold text-[var(--color-text)]">{mySummary?.upcomingVisits ?? 0}</p>
+          <p className="text-xs text-[var(--color-text-muted)]">Pax: {mySummary?.upcomingPax ?? 0}</p>
+        </div>
+        <div className="rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
+          <p className="text-xs text-[var(--color-text-muted)]">My Total Bookings</p>
+          <p className="mt-1 text-2xl font-semibold text-[var(--color-text)]">{mySummary?.totalMine ?? 0}</p>
+        </div>
+      </div>
 
       <div className="grid gap-3 rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4 lg:grid-cols-[minmax(280px,1fr)_200px_170px_170px_auto]">
         <Input

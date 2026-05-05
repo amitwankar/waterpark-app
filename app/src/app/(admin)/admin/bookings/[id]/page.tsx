@@ -39,6 +39,13 @@ interface BookingDetail {
   status: string;
   qrCode: string;
   notes: string | null;
+  posPreload?: {
+    packageLines?: Array<{ packageId: string; quantity: number }>;
+    foodLines?: Array<{ foodItemId: string; foodVariantId?: string; quantity: number }>;
+    lockerLines?: Array<{ lockerCategoryId: string; quantity: number }>;
+    costumeLines?: Array<{ costumeItemId: string; quantity: number }>;
+    rideLines?: Array<{ rideId: string; quantity: number }>;
+  } | null;
   bookingTickets: Array<{
     id: string;
     quantity: number;
@@ -117,6 +124,10 @@ function AdminBookingDetailContent(): JSX.Element {
     );
   }
 
+  const paxFromTickets = booking.bookingTickets.reduce((sum, line) => sum + Math.max(0, line.quantity), 0);
+  const paxFromPackages = (booking.posPreload?.packageLines ?? []).reduce((sum, line) => sum + Math.max(0, line.quantity), 0);
+  const effectivePax = paxFromTickets > 0 ? paxFromTickets : paxFromPackages > 0 ? paxFromPackages : booking.adults + booking.children;
+
   return (
     <div className="space-y-5">
       <PageHeader title={`Booking ${booking.bookingNumber}`} subtitle="Booking detail, tickets, payments, and actions." />
@@ -134,6 +145,7 @@ function AdminBookingDetailContent(): JSX.Element {
               <InfoRow label="Mobile" value={booking.guestMobile} />
               <InfoRow label="Email" value={booking.guestEmail ?? "N/A"} />
               <InfoRow label="Visit Date" value={formatDate(booking.visitDate)} />
+              <InfoRow label="Pax (Derived)" value={String(effectivePax)} />
               <InfoRow label="Adults" value={String(booking.adults)} />
               <InfoRow label="Children" value={String(booking.children)} />
               <InfoRow
@@ -149,14 +161,46 @@ function AdminBookingDetailContent(): JSX.Element {
             <div className="rounded-[var(--radius-lg)] border border-[var(--color-border)] p-3">
               <h3 className="mb-2 text-sm font-semibold text-[var(--color-text)]">Ticket Breakdown</h3>
               <div className="space-y-2">
-                {booking.bookingTickets.map((line) => (
-                  <div key={line.id} className="flex items-center justify-between text-sm">
-                    <span className="text-[var(--color-text-muted)]">
-                      {line.ticketType.name} x {line.quantity}
-                    </span>
-                    <span className="font-medium text-[var(--color-text)]">{formatCurrency(line.totalPrice)}</span>
-                  </div>
+                {booking.bookingTickets.length > 0 ? (
+                  booking.bookingTickets.map((line) => (
+                    <div key={line.id} className="flex items-center justify-between text-sm">
+                      <span className="text-[var(--color-text-muted)]">
+                        {line.ticketType.name} x {line.quantity}
+                      </span>
+                      <span className="font-medium text-[var(--color-text)]">{formatCurrency(line.totalPrice)}</span>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-sm text-[var(--color-text-muted)]">No ticket lines.</p>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-[var(--radius-lg)] border border-[var(--color-border)] p-3">
+              <h3 className="mb-2 text-sm font-semibold text-[var(--color-text)]">Packages / Add-ons</h3>
+              <div className="space-y-1 text-sm text-[var(--color-text-muted)]">
+                {(booking.posPreload?.packageLines ?? []).map((line, index) => (
+                  <p key={`pkg-${index}`}>Package {line.packageId} x {line.quantity}</p>
                 ))}
+                {(booking.posPreload?.foodLines ?? []).map((line, index) => (
+                  <p key={`food-${index}`}>Food {line.foodItemId}{line.foodVariantId ? ` / ${line.foodVariantId}` : ""} x {line.quantity}</p>
+                ))}
+                {(booking.posPreload?.lockerLines ?? []).map((line, index) => (
+                  <p key={`locker-${index}`}>Locker Category {line.lockerCategoryId} x {line.quantity}</p>
+                ))}
+                {(booking.posPreload?.costumeLines ?? []).map((line, index) => (
+                  <p key={`costume-${index}`}>Costume {line.costumeItemId} x {line.quantity}</p>
+                ))}
+                {(booking.posPreload?.rideLines ?? []).map((line, index) => (
+                  <p key={`ride-${index}`}>Ride {line.rideId} x {line.quantity}</p>
+                ))}
+                {(booking.posPreload?.packageLines?.length ?? 0) === 0 &&
+                (booking.posPreload?.foodLines?.length ?? 0) === 0 &&
+                (booking.posPreload?.lockerLines?.length ?? 0) === 0 &&
+                (booking.posPreload?.costumeLines?.length ?? 0) === 0 &&
+                (booking.posPreload?.rideLines?.length ?? 0) === 0 ? (
+                  <p>No package/add-on lines.</p>
+                ) : null}
               </div>
             </div>
 

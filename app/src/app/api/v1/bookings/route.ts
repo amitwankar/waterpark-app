@@ -42,7 +42,22 @@ const listQuerySchema = z.object({
   search: z.string().trim().max(120).optional(),
   from: z.string().trim().optional(),
   to: z.string().trim().optional(),
+  summary: z.enum(["mine"]).optional(),
 });
+
+function getIstDayRange(base: Date): { start: Date; end: Date } {
+  const istOffsetMs = 5.5 * 60 * 60 * 1000;
+  const istTime = new Date(base.getTime() + istOffsetMs);
+  const y = istTime.getUTCFullYear();
+  const m = istTime.getUTCMonth();
+  const d = istTime.getUTCDate();
+  const startUtcMs = Date.UTC(y, m, d, 0, 0, 0, 0) - istOffsetMs;
+  const endUtcMs = Date.UTC(y, m, d, 23, 59, 59, 999) - istOffsetMs;
+  return {
+    start: new Date(startUtcMs),
+    end: new Date(endUtcMs),
+  };
+}
 
 const bookingExtrasSchema = z
   .object({
@@ -252,23 +267,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
   }
-  const totalGuests = normalizedTicketLines.reduce((sum, line) => sum + line.quantity, 0);
-  const idProofThreshold = parkConfig.idProofRequiredAbove ?? 10;
-  const idProofEnabled = parkConfig.idProofEnabled ?? true;
-
-  if (idProofEnabled && totalGuests > idProofThreshold) {
-    if (!extras.idProofType || !extras.idProofNumber || extras.idProofNumber.trim().length === 0) {
-      return NextResponse.json(
-        { message: "ID proof type and number are required for large groups" },
-        { status: 400 },
-      );
-    }
-
-    if (extras.idProofType === "OTHER" && (!extras.idProofLabel || extras.idProofLabel.trim().length === 0)) {
-      return NextResponse.json({ message: "ID proof label is required when proof type is Other" }, { status: 400 });
-    }
-  }
-
+  const ticketGuestCount = normalizedTicketLines.reduce((sum, line) => sum + line.quantity, 0);
   const ticketSubtotal = normalizedTicketLines.reduce((sum, line) => {
     const ticket = ticketById.get(line.ticketTypeId);
     return sum + (ticket ? Number(ticket.price) * line.quantity : 0);
@@ -285,17 +284,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const costumeLines = extras.costumeLines ?? [];
   const rideLines = extras.rideLines ?? [];
 
-  const adults = normalizedTicketLines.reduce((sum, line) => {
-    const ticket = ticketById.get(line.ticketTypeId);
-    if (!ticket) return sum;
-    if (ticket.minAge !== null && ticket.minAge >= 12) return sum + line.quantity;
-    if (ticket.maxAge !== null && ticket.maxAge <= 11) return sum;
-    if (ticket.name.toLowerCase().includes("child")) return sum;
-    return sum + line.quantity;
-  }, 0);
-  const children = Math.max(0, totalGuests - adults);
-  const avgTicketPrice = totalGuests > 0 ? ticketSubtotal / totalGuests : 0;
-
   const packageIds = Array.from(new Set(packageLines.map((line) => line.packageId)));
   const selectedFoodIds = Array.from(new Set(foodLines.map((line) => line.foodItemId)));
   const selectedFoodVariantIds = Array.from(
@@ -309,7 +297,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     packageIds.length > 0
       ? db.salesPackage.findMany({
           where: { id: { in: packageIds }, isDeleted: false, isActive: true },
-          select: { id: true, salePrice: true, gstRate: true },
+          select: {
+            id: true,
+            salePrice: true,
+            gstRate: true,
+            items: {
+              select: {
+                itemType: true,
+                quantity: true,
+              },
+            },
+          },
         })
       : Promise.resolve([]),
     selectedFoodIds.length > 0
@@ -369,6 +367,48 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const lockerMap = new Map(lockerCategories.map((item) => [item.id, item]));
   const costumeMap = new Map(costumeItems.map((item) => [item.id, item]));
   const rideMap = new Map(rides.map((item) => [item.id, item]));
+
+  const packageTicketGuestCount = packageLines.reduce((sum, line) => {
+    const pkg = packageMap.get(line.packageId);
+    if (!pkg) return sum;
+    const ticketsPerPackage = (pkg.items ?? [])
+      .filter((item) => item.itemType === "TICKET")
+      .reduce((s, item) => s + Math.max(0, Number(item.quantity ?? 0)), 0);
+    return sum + ticketsPerPackage * line.quantity;
+  }, 0);
+  const packageGuestCount = packageTicketGuestCount > 0
+    ? packageTicketGuestCount
+    : packageLines.reduce((sum, line) => sum + line.quantity, 0);
+  const totalGuests = ticketGuestCount > 0 ? ticketGuestCount : packageGuestCount;
+
+  const idProofThreshold = parkConfig.idProofRequiredAbove ?? 10;
+  const idProofEnabled = parkConfig.idProofEnabled ?? true;
+  if (idProofEnabled && totalGuests > idProofThreshold) {
+    if (!extras.idProofType || !extras.idProofNumber || extras.idProofNumber.trim().length === 0) {
+      return NextResponse.json(
+        { message: "ID proof type and number are required for large groups" },
+        { status: 400 },
+      );
+    }
+
+    if (extras.idProofType === "OTHER" && (!extras.idProofLabel || extras.idProofLabel.trim().length === 0)) {
+      return NextResponse.json({ message: "ID proof label is required when proof type is Other" }, { status: 400 });
+    }
+  }
+
+  const adults =
+    ticketGuestCount > 0
+      ? normalizedTicketLines.reduce((sum, line) => {
+          const ticket = ticketById.get(line.ticketTypeId);
+          if (!ticket) return sum;
+          if (ticket.minAge !== null && ticket.minAge >= 12) return sum + line.quantity;
+          if (ticket.maxAge !== null && ticket.maxAge <= 11) return sum;
+          if (ticket.name.toLowerCase().includes("child")) return sum;
+          return sum + line.quantity;
+        }, 0)
+      : totalGuests;
+  const children = ticketGuestCount > 0 ? Math.max(0, totalGuests - adults) : 0;
+  const avgTicketPrice = totalGuests > 0 ? ticketSubtotal / totalGuests : 0;
 
   const packageBaseAmount = packageLines.reduce((sum, line) => {
     const pkg = packageMap.get(line.packageId);
@@ -849,7 +889,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ message: "Invalid query params" }, { status: 400 });
   }
 
-  const { page, limit, status, source, search, from, to } = query.data;
+  const { page, limit, status, source, search, from, to, summary } = query.data;
   const skip = (page - 1) * limit;
   const where: Record<string, unknown> = {};
 
@@ -899,6 +939,84 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     where.userId = currentUser.id;
   } else if (role !== "ADMIN" && role !== "EMPLOYEE") {
     return NextResponse.json({ message: "Forbidden" }, { status: 403 });
+  }
+
+  if (summary === "mine") {
+    const mineBaseWhere: Record<string, unknown> = {
+      ...where,
+      userId: currentUser.id,
+    };
+    const now = new Date();
+    const today = getIstDayRange(now);
+    const yesterdayBase = new Date(today.start);
+    yesterdayBase.setUTCDate(yesterdayBase.getUTCDate() - 1);
+    const yesterday = getIstDayRange(yesterdayBase);
+
+    const upcomingVisitDate = parseDateOnlyToUtc(new Date(now.toISOString().slice(0, 10)).toISOString().slice(0, 10));
+
+    const [todayRows, yesterdayRows, upcomingRows, totalMine] = await Promise.all([
+      db.booking.findMany({
+        where: {
+          ...mineBaseWhere,
+          createdAt: { gte: today.start, lte: today.end },
+        },
+        select: {
+          adults: true,
+          children: true,
+          bookingTickets: { select: { quantity: true } },
+        },
+      }),
+      db.booking.findMany({
+        where: {
+          ...mineBaseWhere,
+          createdAt: { gte: yesterday.start, lte: yesterday.end },
+        },
+        select: {
+          adults: true,
+          children: true,
+          bookingTickets: { select: { quantity: true } },
+        },
+      }),
+      db.booking.findMany({
+        where: {
+          ...mineBaseWhere,
+          ...(upcomingVisitDate ? { visitDate: { gte: upcomingVisitDate } } : {}),
+          status: { in: ["PENDING", "CONFIRMED", "CHECKED_IN"] },
+        },
+        select: {
+          adults: true,
+          children: true,
+          bookingTickets: { select: { quantity: true } },
+        },
+      }),
+      db.booking.count({ where: mineBaseWhere }),
+    ]);
+
+    const paxFor = (rows: Array<{ adults: number; children: number; bookingTickets: Array<{ quantity: number }> }>): number =>
+      rows.reduce((sum, row) => {
+        const ticketPax = row.bookingTickets.reduce((s, t) => s + Math.max(0, Number(t.quantity ?? 0)), 0);
+        const rowPax = ticketPax > 0 ? ticketPax : Math.max(0, row.adults) + Math.max(0, row.children);
+        return sum + rowPax;
+      }, 0);
+
+    const todayCreated = todayRows.length;
+    const yesterdayCreated = yesterdayRows.length;
+    const upcomingVisits = upcomingRows.length;
+    const todayPax = paxFor(todayRows);
+    const yesterdayPax = paxFor(yesterdayRows);
+    const upcomingPax = paxFor(upcomingRows);
+
+    return NextResponse.json({
+      summary: {
+        todayCreated,
+        yesterdayCreated,
+        upcomingVisits,
+        totalMine,
+        todayPax,
+        yesterdayPax,
+        upcomingPax,
+      },
+    });
   }
 
   const [total, records] = await Promise.all([

@@ -26,6 +26,7 @@ interface BookingItem {
   visitDate: string;
   adults: number;
   children: number;
+  bookingTickets?: Array<{ quantity: number }>;
   gateEnteredCount?: number;
   totalAmount: number;
   status: string;
@@ -123,7 +124,11 @@ export default function AdminPosBookingsPage(): JSX.Element {
     {
       key: "pax",
       header: "Pax",
-      render: (row) => `${row.adults + row.children} (${row.adults}A/${row.children}C)`,
+      render: (row) => {
+        const ticketPax = (row.bookingTickets ?? []).reduce((sum, line) => sum + Math.max(0, Number(line.quantity ?? 0)), 0);
+        const pax = ticketPax > 0 ? ticketPax : row.adults + row.children;
+        return `${pax} (${row.adults}A/${row.children}C)`;
+      },
     },
     {
       key: "entered",
